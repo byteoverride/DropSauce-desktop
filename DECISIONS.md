@@ -3,8 +3,9 @@
 Every significant technical choice for the Linux desktop port, with a
 one-line rationale, plus everything deliberately left out of v1.
 
-Status: **Phase 1 complete, all five agents reported. Plan approved; no
-code written yet. The toolchain gate (D6) passed on a real build.**
+Status: **Phase 2 in progress.** See "Phase 2 progress" below for what
+is built and verified. Phase 1 is complete; all five agent reports are in
+`docs/porting/`.
 Decisions revised by Phase 1 findings are marked as such in place, with
 the superseded reasoning stated rather than silently dropped. Agent
 reports live in `docs/porting/`.
@@ -35,6 +36,33 @@ catalogue is dead weight in the APK.
 
 So the desktop app gets its remote sources from the one backend that is
 natively JVM, and the Android app keeps the two that are not.
+
+---
+
+## 0a. Phase 2 progress
+
+Every row was verified by running the command, not by inspection. The
+Android gate is re-run at every commit.
+
+| Step (D5) | State | Evidence |
+|---|---|---|
+| 1. `:desktop` skeleton + toolchain proof | **done** (`ffda5a4`) | `:app:assembleDebug` 2m31s; `:shared:build` 6 tests 0 failures; `:desktop:run` held a window 90s under XWayland; `:desktop:packageDeb` produced `dropsauce_0.9.6_amd64.deb`, 54 MB, 106 files under `lib/runtime/`, no JVM in `Depends:` |
+| 2. In-place decoupling refactors | **in progress** | |
+| 2a. `printStackTraceDebug` off the debug/release source sets | **done** (`e26e9be`) | 206 call sites across 87 files, zero edited; both old declarations deleted so a green build proves resolution comes from `:shared`; dexdump finds `DebugFlags` in the APK |
+| 2b. `BuildConfig` out of move-bound files | todo | |
+| 2c. invert `domain` -> `ui` in `list/domain` | todo | |
+| 2d. strip `@StringRes`/`@DrawableRes` off domain enums | todo | |
+| 2e. split the mixed `core/util/ext` files | todo | |
+| 3. `:shared` models, enums, decoupled domain | todo | |
+| 4. Room layer into `:shared` | todo | |
+| 5. Desktop platform implementations | todo | |
+| 6. Desktop UI | todo | |
+| 7. Packaging | partly proven at step 1 | |
+
+**Contracts defined so far** (mine alone, per the subagent rules):
+`AppPaths` (`shared/.../shared/io/AppPaths.kt`, okio `Path`, replaces
+threading `Context` for `filesDir`/`cacheDir`) with `XdgAppPaths` on JVM,
+and `DebugFlags` (`shared/.../core/util/ext/Debug.kt`).
 
 ---
 
