@@ -131,6 +131,18 @@ internal class DesktopMangaLoaderContext(
 	}
 }
 
+/**
+ * A parser together with the client it makes requests through.
+ *
+ * [client] is exposed because cover and page images must be fetched with the same
+ * per-source headers the parser itself sends, and those live on this client.
+ */
+internal class ParserSession(
+	val source: MangaParserSource,
+	val parser: MangaParser,
+	val client: OkHttpClient,
+)
+
 /** Creates parsers with their context correctly paired. */
 internal object DesktopParsers {
 
@@ -140,10 +152,18 @@ internal object DesktopParsers {
 		cookieJar: CookieJar,
 		userAgent: String,
 		configProvider: (MangaSource) -> MangaSourceConfig,
-	): MangaParser {
+	): MangaParser = open(source, httpClient, cookieJar, userAgent, configProvider).parser
+
+	fun open(
+		source: MangaParserSource,
+		httpClient: OkHttpClient,
+		cookieJar: CookieJar,
+		userAgent: String,
+		configProvider: (MangaSource) -> MangaSourceConfig,
+	): ParserSession {
 		val context = DesktopMangaLoaderContext(httpClient, cookieJar, configProvider, userAgent)
 		val parser = context.newParserInstance(source)
 		context.attach(parser)
-		return parser
+		return ParserSession(source, parser, context.httpClient)
 	}
 }

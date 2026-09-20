@@ -30,8 +30,6 @@ dependencies {
 
 	implementation(libs.okhttp)
 	implementation(libs.okio)
-	implementation(libs.coil.compose)
-	implementation(libs.coil.network)
 
 	testImplementation(libs.junit)
 	testImplementation(libs.kotlinx.coroutines.test)

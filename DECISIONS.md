@@ -438,6 +438,52 @@ database file copying. Note one known wrinkle from Agent C:
 webtoon intra-page position will not round-trip between the two apps even
 through a backup. Chapter-level position will.
 
+### D19. Desktop does its own image loading, not Coil
+
+Coil 3 supports JVM desktop and was the obvious choice. It is not used
+because Coil centres on one shared `ImageLoader` with one HTTP client,
+while covers and pages must be fetched through the *originating parser's*
+client so the source's own headers apply. Desktop instead fetches with
+OkHttp and decodes with Skia (`org.jetbrains.skia.Image`), behind a small
+bounded `ImageCache`. One fewer dependency, and the client stays per
+source.
+
+### D20. OPEN BUG: page images 404 through the parser's client
+
+**Not yet fixed. Parked deliberately; evidence recorded so it does not
+have to be re-derived.**
+
+Some page images fail in the reader. Measured on MangaDex, chapter
+"prologue", 10 pages, with controls rather than guesses:
+
+```
+page 0: parserClient=404  bareClient=200  freshAssignment=200  sameAfterFresh=true
+page 2: parserClient=404  bareClient=200  freshAssignment=200  sameAfterFresh=true
+total pages failing on first try: 2
+```
+
+What that rules out, and what it does not:
+
+- **Not MangaDex.** A bare `OkHttpClient` fetches the *identical* url
+  successfully where our per-parser client gets a 404.
+- **Not an expired or node-specific url.** Re-resolving returns the same
+  url and the same host (`sameAfterFresh=true`), so the
+  re-resolve-and-retry loop currently in `PageImage` does **not** address
+  this. It was written against a hypothesis the control then disproved.
+  It is harmless and still useful for genuinely transient misses, but it
+  must not be mistaken for the fix.
+- **The cause is our own client**, specifically that the parser is
+  installed on it as an interceptor. That interceptor is right for API
+  requests (D1's trap) and appears to be wrong for image CDN requests.
+
+The likely fix is a separate image client carrying the parser's static
+request headers but not the parser interceptor. That was half-tested and
+abandoned because `requestHeaders` is not exposed on `MangaParser`; the
+right accessor still needs finding. Note D1's opposite failure mode
+before changing this: some sources 403 covers for a client that does
+*not* send source headers, so "just use a bare client" is not safe
+either.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:
