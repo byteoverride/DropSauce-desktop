@@ -64,7 +64,7 @@ Runs on desktop JVM with no change beyond a source-set move.
 | Android thing | Sites | Desktop replacement |
 |---|---|---|
 | `android.content.Context` | ~500 imports of `android.content`, injected as `@ApplicationContext` | Delete from shared code. Split into narrow interfaces: `AppPaths` (data/cache/config dirs), `StringProvider`, `ClipboardService`, `Notifier`, `UriOpener`. Desktop supplies XDG-based impls. |
-| `android.net.Uri` | 72 `android.net` imports, plus `androidx.core.net.toUri` / `toFile` | `okio.Path` for filesystem, `okhttp3.HttpUrl` for remote, a small `ContentRef` sealed type where the app genuinely mixes both (local CBZ page addressing uses a `zip://` scheme). |
+| `android.net.Uri` | 72 `android.net` imports, plus `androidx.core.net.toUri` / `toFile` | `okio.Path` for filesystem, `okhttp3.HttpUrl` for remote, a small `ContentRef` sealed type where the app genuinely mixes both (local CBZ page addressing uses a `file+zip://<abs-path>#<entry>` scheme, `core/util/ext/Uri.kt:8`, a constant the SSIV fork also declares itself). |
 | `SharedPreferences` (`AppSettings`, 1501 lines) | 1 god object, read from ~200 places | Interface `Settings` with the same property names, backed on desktop by `java.util.prefs` or a JSON file + `StateFlow`. `observeChanges` becomes a `MutableSharedFlow<String>` of changed keys. Android keeps the SharedPreferences impl. |
 | `android.util.Log` | 82 `android.util` imports | tiny `Logger` interface, `println`/SLF4J on desktop |
 | `androidx.documentfile.DocumentFile`, SAF, `OpenDocumentTreeHelper` | `local/`, `settings/storage` | plain `java.io.File` + an AWT/Compose file chooser. SAF has no desktop analogue and does not need one. |
@@ -77,7 +77,7 @@ Runs on desktop JVM with no change beyond a source-set move.
 | **Parser host context** | nothing (never instantiated) | New `DesktopMangaLoaderContext : MangaLoaderContext`. Needs: OkHttp client, a `CookieJar`, `evaluateJs` (two overloads), `getConfig(source)`, `getDefaultUserAgent()`, `redrawImageResponse`, `createBitmap`. This is the single highest-value piece of new code in the port. |
 | **JS engine** | QuickJS (`app.cash.quickjs`, Mihon compat) and a headless `WebView` (LNReader) | GraalJS (`org.graalvm.polyglot:js`) on the JVM. Has a real job queue, so the Promise-based LNReader contract works, unlike QuickJS. Needs `TextEncoder`/`TextDecoder` shims, which map cleanly onto `java.nio.charset` (GBK, Big5, Shift_JIS, EUC-KR are all JDK charsets). |
 | **Cloudflare / interactive challenge** | `WebViewExecutor` headless WebView + `AndroidCookieJar` over `android.webkit.CookieManager` | No WebView. Options are JCEF/KCEF (~100 MB, drags a Chromium into the .deb) or no interactive solve at all. See `DECISIONS.md`. Cookie jar becomes a plain persistent OkHttp `CookieJar` on disk. |
-| **Image decoding** | `ImageDecoder` / `BitmapFactory` / `BitmapRegionDecoder`, AVIF via `org.aomedia` native | Skia via Skiko for JPEG/PNG/WebP/GIF. **Region/tiled decoding has no Skia equivalent** and is what SSIV needs for large webtoon strips. AVIF: no JVM decoder ships with Skiko. |
+| **Image decoding** | `ImageDecoder` / `BitmapFactory` / `BitmapRegionDecoder`, AVIF via `org.aomedia` native | Skia via Skiko for full-image decode. For **region/tiled** decode, Skiko has no equivalent but **the JDK does**: `javax.imageio.ImageReadParam.setSourceRegion` is `BitmapRegionDecoder`'s contract with no new dependency. Measured on this machine (JDK 21): a 2000x12000 PNG region-read of 2000x1000 took 121ms, the same JPEG 20ms, both verified against a positive control pixel. Reader formats available are JPG, PNG, TIFF, BMP, GIF, WBMP. **No WebP**, and `PageLoader.kt:341` sends `Accept: image/webp,...` so WebP is the *preferred* wire format. AVIF: no JVM decoder ships with Skiko. |
 | **Zoomable/tiled page view** | `subsampling-scale-image-view` (17 files) | Hand-written Compose: `Modifier.graphicsLayer` + `pointerInput` transform gestures, with a downsample-on-load strategy instead of true tiling. |
 | **HTTP image pipeline** | Coil 3.4.0 with 11 custom components | Coil 3 is multiplatform and supports JVM desktop. The custom fetchers/keyers/interceptors port; `MihonImageFetcher` does not (no Mihon). |
 | **Background work** | WorkManager + 7 workers + 12 foreground services | Plain coroutines on a supervisor scope owned by the app, plus a `DesktopScheduler` interface for the periodic ones (tracker, suggestions, backup). No OS-level scheduling in v1. |
@@ -86,8 +86,9 @@ Runs on desktop JVM with no change beyond a source-set move.
 | **ViewModels** | `androidx.lifecycle` + `@HiltViewModel` x66 | `androidx.lifecycle:lifecycle-viewmodel` publishes KMP artifacts; alternatively a plain `CoroutineScope`-owning class. The 66 VMs are mostly pure logic over flows. |
 | **Navigation** | `AppRouter.kt`, 958 lines of intents and fragment transactions | Rewrite. A sealed `Screen` type + a back stack in Compose state. Nothing to port. |
 | **Resources / i18n** | `res/values-*` x90, `stringResource`, `@StringRes` | Compose Multiplatform resources (`org.jetbrains.compose.components:resources`), which can consume the existing `strings.xml` files. |
-| **Raw SQL queries** | `MangaQueryBuilder` -> `SupportSQLiteQuery`, several `@RawQuery` DAOs | Room KMP drops the `SupportSQLite*` API. Port to `RoomRawQuery`. ~7 call sites. |
-| **`withTransaction`** | `androidx.room.withTransaction` from room-ktx (Android-only artifact) | Room KMP's own transaction API on `RoomDatabase`. 11 call sites. |
+| **Raw SQL queries** | `MangaQueryBuilder` -> `SupportSQLiteQuery`, 8 `@RawQuery` methods + 5 query-construction sites | Room KMP drops the `SupportSQLite*` API entirely (verified: 0 `SupportSQLite*` classes in `room-runtime-jvm:2.8.4`). `MangaQueryBuilder` itself is a 2-line port because it emits a complete SQL string with **no bind arguments**: `SimpleSQLiteQuery(it)` becomes `RoomRawQuery(it)`. The real problem is `android.database.DatabaseUtils.sqlEscapeString` (8 sites across 5 DAOs), which is the only thing making that string concatenation safe and which has no JVM equivalent. |
+| **`withTransaction`** | `androidx.room.withTransaction`, **50 call sites across 14 files** | Room KMP's `useWriterConnection { it.immediateTransaction { ... } }`. Effort is per-lambda, not per-file. |
+| **`InvalidationTracker.Observer`** | multibound in `AppModule`, used at `MangaDatabase.kt:173` | **Does not exist on JVM.** Verified: `room-runtime-jvm:2.8.4`'s `InvalidationTracker` has no nested `Observer`; it exposes `createFlow(tables, emitInitialState)` instead. Any code touching it cannot move to `:shared` unchanged. |
 
 ## D. Bucket (c): Android-only, not ported
 
@@ -122,7 +123,7 @@ in the same family.
 | `org.jsoup:jsoup` | keep |
 | `xmlutil-core` (`core-android`) | **swap** to `core-jvm` |
 | `xmlutil-serialization` | keep |
-| `androidx.room:room-runtime` / `-ktx` / `-compiler` | **swap** to `room-runtime` KMP + `androidx.sqlite:sqlite-bundled`. `room-ktx` is Android-only; its `withTransaction` has a KMP replacement. |
+| `androidx.room:room-runtime` / `-ktx` / `-compiler` | **swap** to `room-runtime` KMP + `androidx.sqlite:sqlite-bundled`. Note `room-ktx:2.8.4` is an **empty shim**: its `classes.jar` holds one 6-byte version marker and nothing else, so dropping it changes nothing. `withTransaction` actually lives in `room-runtime`'s *Android* source set, so it is the room-runtime **variant** that must change. `room-runtime-jvm:2.8.4` is **404 on Maven Central** and only on Google Maven, so the desktop module needs `google()` in its repositories. |
 | `coil3` core/compose/network-okhttp/gif/svg | keep (Coil 3 supports JVM desktop) |
 | `androidx.compose.*` + BOM | **swap** to `org.jetbrains.compose` (CMP). Latest stable on Maven Central is **1.12.0**. |
 | `androidx.compose.material3:1.5.0-alpha28` (Expressive) | **risk.** CMP's material3 tracks a different androidx version. Whether `MotionScheme`, `MaterialShapes`, `ButtonGroup`, wavy progress and the FAB menu are present in the CMP build must be verified before committing to reusing the Compose screens verbatim. Assigned to Phase 1 Agent E. |
@@ -137,7 +138,7 @@ in the same family.
 | `subsampling-scale-image-view` | drop, replace with Compose gesture code |
 | `org.aomedia.avif.android:avif` | drop, no replacement |
 | `com.github.solkin:disk-lru-cache` | check JVM-compat; otherwise a small LRU over `okio.FileSystem` |
-| `io.noties.markwon` | drop (Android `Spanned`). Novel HTML rendering needs a different approach anyway. |
+| `io.noties.markwon` | drop (Android `Spanned`). **Not** novel rendering: its only consumers are `settings/about/AppUpdateActivity.kt` and the changelog screen. The novel reader uses `HtmlCompat.fromHtml` + Jsoup + `StaticLayout`. |
 | `com.github.dead8309:KizzyRPC` | drop |
 | `play-services-auth` | drop |
 | `dev.rikka.shizuku:*` | drop |

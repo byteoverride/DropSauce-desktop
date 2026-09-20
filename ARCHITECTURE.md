@@ -214,14 +214,20 @@ The reader (`reader/`, 80 files) is entirely View-based:
   subclass per mode: `PagerReaderFragment`, `ReversedReaderFragment`,
   `VerticalReaderFragment`, `DoubleReaderFragment`,
   `ReversedDoubleReaderFragment`, `WebtoonReaderFragment`
-- paged modes are `ViewPager2`; webtoon is a custom `RecyclerView`
+- three modes are `ViewPager2` (standard, reversed, vertical); three are
+  `RecyclerView` (double, reversed-double, webtoon). `fragment_reader_double.xml`
+  is a plain `RecyclerView` + `DoublePageLayoutManager`. Webtoon is a custom `RecyclerView`
   (`WebtoonRecyclerView`, `WebtoonLayoutManager`, `WebtoonFrameLayout`,
   `WebtoonScalingFrame`, `WebtoonGapsDecoration`)
 - zoom/pan/tiling is `subsampling-scale-image-view` (SSIV, Kotatsu's
   fork), referenced from 17 files
 - `reader/domain/PageLoader.kt` fetches page bytes through OkHttp or the
   repository hook, caches to `LocalStorageCache`, hands an SSIV
-  `ImageSource` to the holder
+  `ImageSource` to the holder. Real decoding happens inside SSIV's decoder
+  factories (`ReaderSettings.kt:81-82`); `BitmapDecoderCompat` is only the
+  recovery path after SSIV fails (`PageLoader.convertBimap`), and
+  `RegionBitmapDecoder` is a **Coil** decoder for thumbnails, scrub previews
+  and the colour-filter screen, not part of the reader page pipeline
 - `core/image/BitmapDecoderCompat.kt` decodes via `ImageDecoder` /
   `BitmapFactory` / `BitmapRegionDecoder`, with AVIF through the
   `org.aomedia.avif.android` native decoder

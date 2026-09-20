@@ -3,7 +3,10 @@
 Every significant technical choice for the Linux desktop port, with a
 one-line rationale, plus everything deliberately left out of v1.
 
-Status: **Phase 0 proposal, awaiting sign-off. No code written yet.**
+Status: **Phase 1 recon in progress. Plan approved; no code written yet.**
+Decisions revised by Phase 1 findings are marked as such in place, with
+the superseded reasoning stated rather than silently dropped. Agent
+reports live in `docs/porting/`.
 
 Read `ARCHITECTURE.md` for how the Android app is built and
 `PORTING_NOTES.md` for the dependency-by-dependency inventory.
@@ -54,6 +57,15 @@ as a missing source on desktop, and vice versa. The `MissingMangaSource`
 path already handles exactly this case (it caches `source_title` so the
 entry still renders), so nothing breaks, but the two apps are not
 interchangeable readers of the same library.
+
+**Prerequisite found in Phase 1, not in the original decision:**
+`core/prefs/SourceSettings.kt:18` already declares
+`class SourceSettings(context, source) : MangaSourceConfig`. That is
+precisely the type `MangaLoaderContext.getConfig()` must return, so the
+per-source settings layer is not a settings nicety to defer, it is part
+of D1's critical path. Its current constructor takes a `Context` and a
+`getSharedPreferences` name, so the desktop implementation is a
+reimplementation of that interface, not a move.
 
 **Reading of the definition of done:** "add a source/extension" on desktop
 means enabling a source from the catalogue, the same gesture the Android
@@ -156,9 +168,15 @@ The 1501-line god object stays on Android as-is. `:shared` gets a narrow
 `Settings` interface per consumer area; desktop backs it with a JSON file
 under `$XDG_CONFIG_HOME/dropsauce/` and a `StateFlow` per key.
 
-**Rationale:** porting 1501 lines of preferences for a v1 that exposes
-maybe 20 of them is waste, and the Android impl has to keep existing
-anyway for the existing install base.
+**Rationale:** porting all of it for a v1 that exposes a fraction is
+waste, and the Android impl has to keep existing anyway for the existing
+install base. Measured in Phase 1: `AppSettings` carries **205 keys across
+177 properties**, and desktop v1 needs **50** of them (39 excluding
+network and theme).
+
+**`java.util.prefs` is struck as the backing store.** It has no set type
+for the 15 `getStringSet` call sites, and an 8 KB per-value cap that two
+of the app's JSON-blob preferences already exceed. A JSON file it is.
 
 ### D9. `Context` and `Uri` do not enter `:shared`
 
@@ -170,17 +188,46 @@ addressing is `okhttp3.HttpUrl`.
 platform types) and the existing coupling is shallow enough to make it
 cheap - 26 `Context` and 7 `Uri` imports across all of `data/` + `domain/`.
 
-### D10. Reader: Compose, two modes, no tiling
+### D10. Reader: Compose, three modes, tiled decode via ImageIO
 
-v1 ships **paged** (LTR and RTL) and **webtoon** (continuous vertical).
-Zoom and pan is a hand-written `Modifier.graphicsLayer` +
-`pointerInput` transform. Decoding is Skia via Skiko, downsampling large
-images on load.
+**Revised after Phase 1 Agent C. The original version of this decision
+was wrong and is not preserved above; this is what replaced it.**
 
-**Rationale:** SSIV's tiled decode has no JVM equivalent
-(`BitmapRegionDecoder` is Android-only and Skia exposes no region
-decoder through Skiko). Downsample-on-load is the honest trade: it costs
-memory on very tall webtoon strips and it works.
+v1 ships **paged LTR**, **paged RTL**, **vertical** and **webtoon**.
+Zoom and pan is a hand-written `Modifier.graphicsLayer` + `pointerInput`
+transform. Full-image decode is Skia via Skiko. Region decode is
+`javax.imageio.ImageReadParam.setSourceRegion`.
+
+**What changed and why.** The original decision dropped tiled decoding on
+the premise that no JVM region decoder exists. That premise was false.
+`javax.imageio.ImageReadParam.setSourceRegion` is exactly
+`BitmapRegionDecoder`'s contract, ships in the JDK, and needs no new
+dependency. Measured here on JDK 21: a 2000x12000 PNG region-read of a
+2000x1000 slice took 121ms, the same image as JPEG took 20ms, both
+verified against a known-colour control pixel so the reader is provably
+returning the requested region and not just any region.
+
+Dropping tiling was also not survivable on its own terms.
+`WebtoonImageView.onMeasure` clamps every webtoon page view to
+`parentHeight()`, one screen, and `scrollToInternal` pans the SSIV centre
+down the source. The webtoon reader is built *around* tiling, so removing
+it invalidates the design rather than simplifying it. And the constraint
+is not only memory: SSIV caps tiles at `Canvas.getMaximumBitmapWidth/Height`
+because an oversized bitmap cannot be a single GPU texture, and desktop
+GPUs have the same limit.
+
+**The gap, stated honestly.** ImageIO's reader formats here are JPG, PNG,
+TIFF, BMP, GIF and WBMP. **There is no WebP reader**, and
+`PageLoader.kt:341` sends `Accept: image/webp,image/png;q=0.9,image/jpeg`,
+so WebP is the format sources are actively encouraged to return. WebP
+therefore needs either full-image Skia decode with downsampling (the
+original fallback, now the exception rather than the rule) or a WebP
+ImageIO plugin. Resolving this is the first task of the reader work.
+
+**Also adopted from Agent C:** vertical mode is in v1 because
+`VerticalReaderFragment.kt` is 16 lines, two overrides on the shared
+pager. Webtoon alone is 1242 lines across 8 files. Adding vertical is
+nearly free; it was cut for no reason.
 
 ### D11. Background work is coroutines, not a scheduler
 
@@ -207,23 +254,61 @@ not something this port can deliver.
 something untrue. It will run on a Wayland desktop; it will not be a
 native Wayland client.
 
-### D14. Desktop ships at schema version 37 with no migration history
+### D14. Migrations move to `:shared`, rewritten once against `SQLiteConnection`
 
-The Room entities and DAOs are shared; the 36 `Migration` classes are not
-moved to `:shared` in v1.
+**Revised after Phase 1 Agent A. The original version said migrations
+would not be ported and desktop would ship fresh at v37; that rested on a
+false dichotomy and is not preserved above.**
 
-**Rationale:** all 36 are written against `SupportSQLiteDatabase`, which
-Room KMP does not expose, so they need mechanical rewriting against
-`SQLiteConnection`. There are no existing desktop installs to migrate, so
-the work buys nothing in v1. Android keeps its migrations untouched in
-`:app`. This does mean a desktop database cannot be created by restoring
-an older Android database file directly; backup/restore (D15) is the
-supported path, and it is version-aware already.
+All 36 migrations move to `:shared`, rewritten against
+`androidx.sqlite.SQLiteConnection`. `DatabasePrePopulateCallback` moves
+with them.
 
-### D15. Backup/restore is the interop path between Android and desktop
+**Why the original reasoning was wrong.** It assumed a migration must be
+written against either `SupportSQLiteDatabase` (Android) or
+`SQLiteConnection` (KMP). Verified by disassembling both published
+artifacts: the **Android** `Migration` declares *both* `migrate(SupportSQLiteDatabase)`
+and `migrate(SQLiteConnection)`, while the **JVM** `Migration` declares
+only `migrate(SQLiteConnection)`. So one migration written against
+`SQLiteConnection` compiles and runs on both platforms. The rewrite is
+mechanical: all 36 migrations together are 523 lines containing 89
+`execSQL(String)` calls, **zero** bind arguments and **no other `db.*`
+call of any kind**.
+
+**And the prepopulate callback is not optional.**
+`DatabasePrePopulateCallback` seeds the "Read later" favourite category
+in `onCreate`, and that row is not in the v37 `CREATE` statements. A
+fresh desktop database would come up with zero categories, and
+`LocalBackupRepository:433-442` then deletes the one a restore brings in,
+matching on the *localized* title. Favourites are in v1 scope, so this
+would have been a real data bug shipped on day one.
+
+### D14a. A live hazard in the Android app, discovered during this recon
+
+This is not a desktop decision, it is a warning about `:app` and it
+belongs on the record.
+
+Android's `Migration.migrate(SQLiteConnection)` base implementation
+checks `instanceof SupportSQLiteConnection`; if the connection is not one,
+it throws `kotlin.NotImplementedError("Migration functionality with a
+provided SQLiteDriver requires overriding the migrate(SQLiteConnection)
+function.")`. Verified in the bytecode of `room-runtime-android:2.8.4`.
+
+All 36 of this app's migrations override only the `SupportSQLiteDatabase`
+overload. So **if `:app` ever gains a `setDriver(...)` call**, which is
+exactly what adopting a KMP Room setup invites, every existing user hits
+`NotImplementedError` on database upgrade while `:app:assembleDebug` stays
+perfectly green. Rewriting the migrations against `SQLiteConnection`
+(D14) removes the hazard as a side effect. Until that lands, `setDriver`
+must not appear in `:app`.
+
+### D15. Backup/restore stays the Android/desktop interop path
 
 Not Google Drive sync (`play-services-auth` is Android-only), not raw
-database copying (D14).
+database file copying. Note one known wrinkle from Agent C:
+`ReaderState.scroll` is stored in view pixels at SSIV's fit scale, so
+webtoon intra-page position will not round-trip between the two apps even
+through a backup. Chapter-level position will.
 
 ### D16. No new dependency is added without appearing in this file first
 
@@ -247,8 +332,8 @@ Planned for v1, each already justified above:
 - Per-source list browsing with sort orders and filters
 - Search within a source
 - Manga details: cover, description, tags, chapter list
-- Read a chapter: paged LTR/RTL and webtoon, zoom and pan, keyboard and
-  mouse navigation
+- Read a chapter: paged LTR, paged RTL, vertical and webtoon, zoom and
+  pan, keyboard and mouse navigation (vertical added per D10)
 - Library: favourites with categories, reading history, resume where you
   left off
 - Local persistence in SQLite that survives restart
