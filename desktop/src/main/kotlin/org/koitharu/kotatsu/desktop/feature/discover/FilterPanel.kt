@@ -61,10 +61,14 @@ fun FilterPanel(
 			horizontalArrangement = Arrangement.SpaceBetween,
 		) {
 			Text("Filters", style = MaterialTheme.typography.titleMedium)
-			if (!draft.isEmpty) {
-				TextButton(onClick = { onDraftChange(FilterSelection(query = draft.query)) }) {
-					Text("Reset")
-				}
+			// Always present, disabled when there is nothing to reset: showing and hiding
+			// it changes the header's height, which shifts every chip below it down by a
+			// row the moment the first one is tapped.
+			TextButton(
+				onClick = { onDraftChange(FilterSelection(query = draft.query)) },
+				enabled = !draft.isEmpty,
+			) {
+				Text("Reset")
 			}
 		}
 
@@ -247,9 +251,11 @@ private fun TagSection(
 	val matches = remember(spec, tagQuery, chosen) {
 		val needle = tagQuery.trim().lowercase()
 		val pool = if (needle.isEmpty()) spec.tags else spec.tags.filter { it.title.lowercase().contains(needle) }
-		// Chosen tags stay visible even when the search box no longer matches them,
-		// otherwise a selection can be active and invisible at the same time.
-		(chosen.filter { it in spec.tags } + pool).distinct().take(MAX_TAG_CHIPS)
+		val visible = pool.take(MAX_TAG_CHIPS)
+		// Chosen tags the search box or the cap would hide are appended, so a selection
+		// is never active and invisible. Appended rather than hoisted to the front:
+		// re-sorting on every tap makes the chips jump out from under the cursor.
+		visible + chosen.filter { it in spec.tags && it !in visible }
 	}
 	Section(
 		title = if (canExclude) "Tags (tap again to exclude)" else "Tags",

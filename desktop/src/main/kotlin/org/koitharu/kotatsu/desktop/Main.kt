@@ -34,6 +34,8 @@ import org.koitharu.kotatsu.desktop.ui.HistoryScreen
 import org.koitharu.kotatsu.desktop.ui.LibraryScreen
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
 import org.koitharu.kotatsu.desktop.ui.ErrorBox
+import org.koitharu.kotatsu.desktop.ui.LocalPageSource
+import org.koitharu.kotatsu.desktop.ui.RemotePageSource
 import org.koitharu.kotatsu.desktop.ui.SettingsScreen
 import org.koitharu.kotatsu.desktop.ui.createAppState
 import org.koitharu.kotatsu.shared.settings.ThemeMode
@@ -112,12 +114,10 @@ private fun rememberNavigator(state: AppState): FeatureNavigator = remember(stat
 			chapterIndex: Int,
 			page: Int,
 		) {
-			// Local content still carries a source on its Manga, so the ordinary reader
-			// route works; the pages simply resolve to files rather than urls.
-			val source = manga.source as? MangaParserSource
-			if (source != null) {
-				state.go(Screen.Reader(source, manga, chapters, chapterIndex, page))
-			}
+			// A local comic's source can never be a MangaParserSource, which is a closed
+			// enum, so the earlier cast here always failed and clicking a local comic
+			// silently did nothing. Local reading has its own screen for that reason.
+			state.go(Screen.LocalReader(manga, chapters, chapterIndex, page))
 		}
 
 		override fun back() = state.back()
@@ -206,9 +206,24 @@ private fun Router(state: AppState) {
 			},
 		)
 
+		is Screen.LocalReader -> ReaderScreen(
+			state = state,
+			pageSource = remember { LocalPageSource() },
+			sourceLabel = "Local",
+			manga = screen.manga,
+			chapters = screen.chapters,
+			chapterIndex = screen.chapterIndex,
+			initialPage = screen.initialPage,
+			onBack = state::back,
+			onChapterChange = { index ->
+				state.replace(screen.copy(chapterIndex = index, initialPage = 0))
+			},
+		)
+
 		is Screen.Reader -> ReaderScreen(
 			state = state,
-			source = screen.source,
+			pageSource = remember(screen.source) { RemotePageSource(state, screen.source) },
+			sourceLabel = screen.source.title,
 			manga = screen.manga,
 			chapters = screen.chapters,
 			chapterIndex = screen.chapterIndex,

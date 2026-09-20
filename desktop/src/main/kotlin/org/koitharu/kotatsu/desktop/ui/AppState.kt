@@ -11,6 +11,14 @@ import kotlinx.coroutines.launch
 import okio.FileSystem
 import org.koitharu.kotatsu.desktop.image.ImageCache
 import org.koitharu.kotatsu.desktop.feature.Feature
+import org.koitharu.kotatsu.desktop.feature.discover.DiscoverFeature
+import org.koitharu.kotatsu.desktop.feature.download.DownloadFeature
+import org.koitharu.kotatsu.desktop.feature.local.LocalFeature
+import org.koitharu.kotatsu.desktop.feature.migration.MigrationFeature
+import org.koitharu.kotatsu.desktop.feature.reading.BookmarksFeature
+import org.koitharu.kotatsu.desktop.feature.reading.StatsFeature
+import org.koitharu.kotatsu.desktop.feature.sync.BackupFeature
+import org.koitharu.kotatsu.desktop.feature.sync.UpdatesFeature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.library.LibraryRepository
 import org.koitharu.kotatsu.desktop.source.SourceRegistry
@@ -48,6 +56,14 @@ sealed interface Screen {
 	data class Browse(val source: MangaParserSource) : Screen
 
 	data class Details(val source: MangaParserSource, val manga: Manga) : Screen
+
+	/** A locally imported comic, whose pages come from an archive rather than a source. */
+	data class LocalReader(
+		val manga: Manga,
+		val chapters: List<MangaChapter>,
+		val chapterIndex: Int,
+		val initialPage: Int = 0,
+	) : Screen
 
 	data class Reader(
 		val source: MangaParserSource,
@@ -91,7 +107,16 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 	 * point: no area edits navigation, and integrating a batch cannot produce a merge
 	 * conflict in a shared `when` block.
 	 */
-	val features: List<Feature> = emptyList()
+	val features: List<Feature> = listOf(
+		LocalFeature,
+		DiscoverFeature,
+		DownloadFeature,
+		BookmarksFeature,
+		UpdatesFeature,
+		MigrationFeature,
+		StatsFeature,
+		BackupFeature,
+	)
 
 	fun feature(id: String): Feature? = features.firstOrNull { it.id == id }
 

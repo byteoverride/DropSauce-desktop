@@ -65,7 +65,7 @@ class AlternativesEngine(
 	}
 
 	/**
-	 * Sources worth searching for an alternative to [seed].
+	 * Sources worth searching for an alternative to a title on [currentSourceName].
 	 *
 	 * Three filters, in order of how much they matter:
 	 *
@@ -84,16 +84,31 @@ class AlternativesEngine(
 	 *    another, and auto-fix would then pick the same title up again next run.
 	 */
 	fun candidateSources(
+		currentSourceName: String,
+		isNovel: Boolean,
+		catalogue: List<MangaParserSource> = MangaParserSource.entries,
+	): List<MangaParserSource> = catalogue.filter { source ->
+		source.name != currentSourceName &&
+			!source.isBroken &&
+			(source.contentType == ContentType.NOVEL) == isNovel
+	}
+
+	/**
+	 * The same thing for a title whose source is still in the catalogue.
+	 *
+	 * Split from the explicit overload because an entry whose source has been *removed*
+	 * from the catalogue is exactly what auto-fix repairs, and for those the kind cannot be
+	 * read off the source at all. Those go through the overload above with `isNovel = false`,
+	 * the image reader, which is what 1260 of the 1270 catalogue entries are.
+	 */
+	fun candidateSources(
 		seed: Manga,
 		catalogue: List<MangaParserSource> = MangaParserSource.entries,
-	): List<MangaParserSource> {
-		val seedIsNovel = (seed.source as? MangaParserSource)?.contentType == ContentType.NOVEL
-		return catalogue.filter { source ->
-			source.name != seed.source.name &&
-				!source.isBroken &&
-				(source.contentType == ContentType.NOVEL) == seedIsNovel
-		}
-	}
+	): List<MangaParserSource> = candidateSources(
+		currentSourceName = seed.source.name,
+		isNovel = (seed.source as? MangaParserSource)?.contentType == ContentType.NOVEL,
+		catalogue = catalogue,
+	)
 
 	/**
 	 * Streams one [Alternative] per source that answered, in the order they answer.

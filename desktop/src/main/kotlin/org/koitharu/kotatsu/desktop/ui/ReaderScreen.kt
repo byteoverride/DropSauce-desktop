@@ -2,6 +2,8 @@ package org.koitharu.kotatsu.desktop.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +18,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -29,12 +32,19 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -61,7 +71,8 @@ enum class ReaderMode { PAGED_LTR, PAGED_RTL, WEBTOON }
 @Composable
 fun ReaderScreen(
 	state: AppState,
-	source: MangaParserSource,
+	pageSource: ReaderPageSource,
+	sourceLabel: String,
 	manga: Manga,
 	chapters: List<MangaChapter>,
 	chapterIndex: Int,
@@ -69,7 +80,6 @@ fun ReaderScreen(
 	onBack: () -> Unit,
 	onChapterChange: (Int) -> Unit,
 ) {
-	val session = remember(source) { state.sources.session(source) }
 	val chapter = chapters[chapterIndex]
 	val pages = remember(chapter.id) { mutableStateListOf<MangaPage>() }
 	var loading by remember(chapter.id) { mutableStateOf(true) }
@@ -80,12 +90,13 @@ fun ReaderScreen(
 	var index by remember(chapter.id) { mutableStateOf(0) }
 	var appliedInitial by remember(chapter.id) { mutableStateOf(false) }
 	var mode by remember { mutableStateOf(ReaderMode.PAGED_LTR) }
+	val zoom = remember { ZoomState() }
 
 	LaunchedEffect(chapter.id, attempt) {
 		loading = true
 		error = null
 		pages.clear()
-		runCatching { withContext(Dispatchers.IO) { session.parser.getPages(chapter) } }
+		runCatching { pageSource.pages(chapter) }
 			.onSuccess {
 				pages.addAll(it)
 				if (!appliedInitial) {
@@ -139,6 +150,17 @@ fun ReaderScreen(
 			.background(Color.Black)
 			.focusRequester(focus)
 			.focusable()
+			// Take focus back on any press inside the reader. The page area is a
+			// scrollable list, so clicking it moves focus off this Column and silently
+			// kills every keyboard shortcut: arrows, space, Escape and zoom all stop
+			// working with nothing on screen to explain why. Runs on the Initial pass
+			// and consumes nothing, so gestures below are unaffected.
+			.pointerInput(Unit) {
+				awaitEachGesture {
+					awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+					focus.requestFocus()
+				}
+			}
 			.onPreviewKeyEvent { event ->
 				if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
 				// Reading direction decides what "forward" means for the arrow keys.
@@ -147,6 +169,11 @@ fun ReaderScreen(
 				when (event.key) {
 					forward, Key.PageDown, Key.Spacebar -> { next(); true }
 					back, Key.PageUp -> { previous(); true }
+					// Keyboard zoom, because a mouse without a wheel or a trackpad
+					// without pinch would otherwise have no way to zoom at all.
+					Key.Equals, Key.Plus, Key.NumPadAdd -> { zoom.zoomBy(KEY_STEP); true }
+					Key.Minus, Key.NumPadSubtract -> { zoom.zoomBy(1f / KEY_STEP); true }
+					Key.Zero, Key.NumPad0 -> { zoom.reset(); true }
 					Key.Escape -> { onBack(); true }
 					else -> false
 				}
@@ -154,6 +181,7 @@ fun ReaderScreen(
 	) {
 		ReaderBar(
 			manga = manga,
+			sourceLabel = sourceLabel,
 			chapter = chapter,
 			index = index,
 			total = pages.size,
@@ -165,8 +193,8 @@ fun ReaderScreen(
 			loading -> LoadingBox()
 			error != null -> ErrorBox("Could not load pages.\n$error", onRetry = { attempt++ })
 			pages.isEmpty() -> ErrorBox("This chapter has no pages.", onRetry = { attempt++ })
-			mode == ReaderMode.WEBTOON -> WebtoonStrip(state, source, session.client, pages)
-			else -> PagedView(state, source, session.client, pages, index)
+			mode == ReaderMode.WEBTOON -> WebtoonStrip(pageSource, pages, zoom)
+			else -> PagedView(pageSource, pages, index, zoom)
 		}
 	}
 }
@@ -174,6 +202,7 @@ fun ReaderScreen(
 @Composable
 private fun ReaderBar(
 	manga: Manga,
+	sourceLabel: String,
 	chapter: MangaChapter,
 	index: Int,
 	total: Int,
@@ -194,6 +223,14 @@ private fun ReaderBar(
 				color = Color.White,
 				maxLines = 1,
 			)
+			if (sourceLabel.isNotEmpty() && total == 0) {
+				Text(
+					text = sourceLabel,
+					style = MaterialTheme.typography.labelSmall,
+					color = Color.White.copy(alpha = 0.6f),
+					maxLines = 1,
+				)
+			}
 			Text(
 				text = if (total == 0) manga.title else "${index + 1} / $total",
 				style = MaterialTheme.typography.bodySmall,
@@ -217,46 +254,101 @@ private fun ReaderBar(
 	}
 }
 
+/**
+ * Zoom and pan shared by every reading mode.
+ *
+ * Hoisted out of the individual views because webtoon mode originally had no transform at
+ * all: it was a plain LazyColumn, so a long strip could only ever be read at whatever
+ * width the window happened to be. Keeping one state also means switching mode does not
+ * silently throw away the zoom the reader had set.
+ */
+@Stable
+class ZoomState {
+
+	var scale by mutableStateOf(MIN_SCALE)
+		private set
+
+	var offsetX by mutableStateOf(0f)
+		private set
+
+	var offsetY by mutableStateOf(0f)
+		private set
+
+	val isZoomed: Boolean get() = scale > MIN_SCALE + 0.001f
+
+	fun zoomBy(factor: Float) {
+		val next = (scale * factor).coerceIn(MIN_SCALE, MAX_SCALE)
+		if (next == scale) return
+		scale = next
+		if (!isZoomed) {
+			// Snapping back to fit must also recentre, or the page stays nudged off to
+			// one side with no visible way to correct it.
+			offsetX = 0f
+			offsetY = 0f
+		}
+	}
+
+	fun panBy(dx: Float, dy: Float) {
+		if (!isZoomed) return
+		offsetX += dx
+		offsetY += dy
+	}
+
+	fun reset() {
+		scale = MIN_SCALE
+		offsetX = 0f
+		offsetY = 0f
+	}
+}
+
+/**
+ * Ctrl plus wheel to zoom, which is what a desktop user reaches for first.
+ *
+ * Plain wheel is deliberately left alone so it still scrolls the strip in webtoon mode.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+private fun Modifier.ctrlScrollZoom(zoom: ZoomState): Modifier =
+	onPointerEvent(PointerEventType.Scroll) { event ->
+		if (!event.keyboardModifiers.isCtrlPressed) return@onPointerEvent
+		val delta = event.changes.firstOrNull()?.scrollDelta?.y ?: return@onPointerEvent
+		if (delta == 0f) return@onPointerEvent
+		zoom.zoomBy(if (delta < 0f) WHEEL_STEP else 1f / WHEEL_STEP)
+		event.changes.forEach { it.consume() }
+	}
+
+/** Pinch on a trackpad, and drag to pan once zoomed in. */
+private fun Modifier.pinchAndPan(zoom: ZoomState, key: Any?): Modifier =
+	pointerInput(key) {
+		detectTransformGestures { _, pan, gestureZoom, _ ->
+			if (gestureZoom != 1f) zoom.zoomBy(gestureZoom)
+			zoom.panBy(pan.x, pan.y)
+		}
+	}
+
 /** One page at a time, with pinch/scroll zoom and drag to pan. */
 @Composable
 private fun PagedView(
-	state: AppState,
-	source: MangaParserSource,
-	client: okhttp3.OkHttpClient,
+	pageSource: ReaderPageSource,
 	pages: List<MangaPage>,
 	index: Int,
+	zoom: ZoomState,
 ) {
-	var scale by remember(index) { mutableStateOf(1f) }
-	var offsetX by remember(index) { mutableStateOf(0f) }
-	var offsetY by remember(index) { mutableStateOf(0f) }
 	Box(
 		modifier = Modifier
 			.fillMaxSize()
-			.pointerInput(index) {
-				detectTransformGestures { _, pan, zoom, _ ->
-					scale = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
-					if (scale > 1f) {
-						offsetX += pan.x
-						offsetY += pan.y
-					} else {
-						offsetX = 0f
-						offsetY = 0f
-					}
-				}
-			},
+			.ctrlScrollZoom(zoom)
+			.pinchAndPan(zoom, index),
 		contentAlignment = Alignment.Center,
 	) {
 		PageImage(
 			page = pages[index],
-			state = state,
-			source = source,
-			client = client,
+			pageSource = pageSource,
 			contentScale = ContentScale.Fit,
 			modifier = Modifier.fillMaxSize().graphicsLayer {
-				scaleX = scale
-				scaleY = scale
-				translationX = offsetX
-				translationY = offsetY
+				scaleX = zoom.scale
+				scaleY = zoom.scale
+				translationX = zoom.offsetX
+				translationY = zoom.offsetY
 			},
 		)
 	}
@@ -265,22 +357,44 @@ private fun PagedView(
 /** Continuous vertical strip. Pages are decoded whole; see D10 on tiling. */
 @Composable
 private fun WebtoonStrip(
-	state: AppState,
-	source: MangaParserSource,
-	client: okhttp3.OkHttpClient,
+	pageSource: ReaderPageSource,
 	pages: List<MangaPage>,
+	zoom: ZoomState,
 ) {
 	val listState = rememberLazyListState()
-	LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-		items(pages.size) { i ->
-			PageImage(
-				page = pages[i],
-				state = state,
-				source = source,
-				client = client,
-				contentScale = ContentScale.FillWidth,
-				modifier = Modifier.fillMaxWidth(),
-			)
+	Box(
+		modifier = Modifier
+			.fillMaxSize()
+			.clipToBounds()
+			.ctrlScrollZoom(zoom)
+			// Horizontal drag pans a zoomed strip. Vertical drag is left to the list so
+			// scrolling the chapter keeps working, which is the whole point of this mode.
+			.pointerInput(Unit) {
+				detectTransformGestures { _, pan, gestureZoom, _ ->
+					if (gestureZoom != 1f) zoom.zoomBy(gestureZoom)
+					zoom.panBy(pan.x, 0f)
+				}
+			},
+	) {
+		LazyColumn(
+			state = listState,
+			modifier = Modifier.fillMaxSize().graphicsLayer {
+				scaleX = zoom.scale
+				scaleY = zoom.scale
+				translationX = zoom.offsetX
+				// Scale from the top so zooming does not jump the reader's position down
+				// the strip, and from the centre horizontally so it grows evenly.
+				transformOrigin = TransformOrigin(0.5f, 0f)
+			},
+		) {
+			items(pages.size) { i ->
+				PageImage(
+					page = pages[i],
+					pageSource = pageSource,
+					contentScale = ContentScale.FillWidth,
+					modifier = Modifier.fillMaxWidth(),
+				)
+			}
 		}
 	}
 }
@@ -288,9 +402,7 @@ private fun WebtoonStrip(
 @Composable
 private fun PageImage(
 	page: MangaPage,
-	state: AppState,
-	source: MangaParserSource,
-	client: okhttp3.OkHttpClient,
+	pageSource: ReaderPageSource,
 	contentScale: ContentScale,
 	modifier: Modifier = Modifier,
 ) {
@@ -300,20 +412,9 @@ private fun PageImage(
 	LaunchedEffect(page.id) {
 		failed = false
 		bitmap = null
-		// Retry with a pause, because the failure is transient rather than structural.
-		// Measured with a live 2x2 control (DECISIONS.md D20): whichever client requests
-		// a given page url FIRST gets a 404, and every later request for the same url
-		// through the very same client gets a 200. So the node is cold on first touch,
-		// not hostile to our client. An immediate retry is often still too early, which
-		// is why this backs off rather than hammering.
 		for (attempt in 1..PAGE_ATTEMPTS) {
 			if (attempt > 1) delay(PAGE_RETRY_DELAY_MS * (attempt - 1))
-			val url = runCatching {
-				withContext(Dispatchers.IO) { state.sources.pageUrl(source, page) }
-			}.getOrNull()
-			if (url == null) continue
-			state.images.forget(url)
-			val loaded = state.images.load(url, client)
+			val loaded = pageSource.image(page, attempt)
 			if (loaded != null) {
 				bitmap = loaded
 				return@LaunchedEffect
@@ -351,3 +452,9 @@ private const val PAGE_RETRY_DELAY_MS = 400L
 
 private const val MIN_SCALE = 1f
 private const val MAX_SCALE = 6f
+
+/** Per wheel notch. Small enough that a fast scroll is not a jarring jump. */
+private const val WHEEL_STEP = 1.15f
+
+/** Per key press. Larger than a wheel notch, since keys are pressed deliberately. */
+private const val KEY_STEP = 1.25f

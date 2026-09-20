@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -217,6 +219,30 @@ private fun SearchResults(
 			}
 		}
 
+		if (showFailures && state.failures.isNotEmpty()) {
+			// Above the result list rather than inside it. A lazy list anchors on its
+			// first visible item, so rows prepended to it land off-screen and the button
+			// looks like it did nothing.
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.heightIn(max = FAILURE_LIST_HEIGHT)
+					.verticalScroll(rememberScrollState())
+					.padding(horizontal = 16.dp),
+			) {
+				for (result in state.failures) {
+					val reason = (result.outcome as? SourceOutcome.Failed)?.message.orEmpty()
+					Text(
+						text = "${result.target.title}: $reason",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.error,
+						modifier = Modifier.padding(vertical = 2.dp),
+					)
+				}
+			}
+			HorizontalDivider(Modifier.padding(vertical = 6.dp))
+		}
+
 		when {
 			state.isTotalFailure -> ErrorBox(
 				message = "Every one of the ${state.total} sources failed for " +
@@ -237,18 +263,6 @@ private fun SearchResults(
 				modifier = Modifier.fillMaxSize(),
 				contentPadding = PaddingValues(bottom = 24.dp),
 			) {
-				if (showFailures) {
-					items(state.failures, key = { "fail-${it.target.key}" }) { result ->
-						val reason = (result.outcome as? SourceOutcome.Failed)?.message.orEmpty()
-						Text(
-							text = "${result.target.title}: $reason",
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.error,
-							modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-						)
-					}
-					item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
-				}
 				items(state.groupsWithHits, key = { it.target.key }) { group ->
 					SourceGroup(
 						context = context,
@@ -406,6 +420,9 @@ private fun sourceOf(key: String): MangaParserSource? =
 	MangaParserSource.entries.firstOrNull { it.name == key }
 
 private val SOURCE_PICKER_HEIGHT = 240.dp
+
+/** Enough for a handful of failures without pushing the results off the screen. */
+private val FAILURE_LIST_HEIGHT = 140.dp
 
 /** See the comment at the call site: a readability ceiling, not a technical one. */
 const val MAX_SELECTABLE = 40
