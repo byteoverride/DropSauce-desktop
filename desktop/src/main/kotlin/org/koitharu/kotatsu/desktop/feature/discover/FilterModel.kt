@@ -86,17 +86,22 @@ class FilterSpec(
 
 	companion object {
 
+		/**
+		 * [options] is null when the source could not serve its option lists, which is a
+		 * different thing from serving empty ones only in what we tell the user; either
+		 * way there are no values to offer.
+		 */
 		fun of(
 			capabilities: MangaListFilterCapabilities,
-			options: MangaListFilterOptions,
+			options: MangaListFilterOptions?,
 			availableSortOrders: Set<SortOrder>,
 		): FilterSpec {
-			val tags = options.availableTags.sortedBy { it.title.lowercase() }
-			val states = options.availableStates.sortedBy { it.ordinal }
-			val ratings = options.availableContentRating.sortedBy { it.ordinal }
-			val types = options.availableContentTypes.sortedBy { it.ordinal }
-			val demographics = options.availableDemographics.sortedBy { it.ordinal }
-			val locales = options.availableLocales.sortedBy { it.displayLanguageOrTag() }
+			val tags = options?.availableTags.orEmpty().sortedBy { it.title.lowercase() }
+			val states = options?.availableStates.orEmpty().sortedBy { it.ordinal }
+			val ratings = options?.availableContentRating.orEmpty().sortedBy { it.ordinal }
+			val types = options?.availableContentTypes.orEmpty().sortedBy { it.ordinal }
+			val demographics = options?.availableDemographics.orEmpty().sortedBy { it.ordinal }
+			val locales = options?.availableLocales.orEmpty().sortedBy { it.displayLanguageOrTag() }
 			val sortOrders = availableSortOrders.sortedBy { it.ordinal }
 			val controls = buildSet {
 				if (capabilities.isSearchSupported) add(FilterControl.QUERY)

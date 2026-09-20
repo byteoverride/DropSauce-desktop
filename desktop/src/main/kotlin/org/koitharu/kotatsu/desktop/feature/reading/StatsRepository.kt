@@ -248,7 +248,7 @@ internal object StatsMath {
 
 /** "2h 14m", "14m", "38s". Zero reads as a dash rather than "0m", which looks broken. */
 internal fun formatDuration(millis: Long): String {
-	if (millis <= 0L) return "–"
+	if (millis <= 0L) return "\u2013"
 	val totalSeconds = millis / 1000
 	val hours = totalSeconds / 3600
 	val minutes = (totalSeconds % 3600) / 60

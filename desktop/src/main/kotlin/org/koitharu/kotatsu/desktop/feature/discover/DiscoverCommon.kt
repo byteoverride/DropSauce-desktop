@@ -1,10 +1,14 @@
 package org.koitharu.kotatsu.desktop.feature.discover
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -51,6 +55,30 @@ fun CoverCard(
 			style = MaterialTheme.typography.bodySmall,
 			maxLines = 2,
 			overflow = TextOverflow.Ellipsis,
+		)
+	}
+}
+
+/**
+ * A determinate progress bar.
+ *
+ * Drawn from two boxes rather than with `LinearProgressIndicator`, whose overload set in
+ * this material3 build is ambiguous at the call site once every optional parameter is
+ * omitted. Two boxes cannot be ambiguous.
+ */
+@Composable
+fun ProgressBar(fraction: Float, modifier: Modifier = Modifier) {
+	Box(
+		modifier = modifier
+			.height(4.dp)
+			.clip(RoundedCornerShape(2.dp))
+			.background(MaterialTheme.colorScheme.surfaceVariant),
+	) {
+		Box(
+			Modifier
+				.fillMaxHeight()
+				.fillMaxWidth(fraction.coerceIn(0f, 1f))
+				.background(MaterialTheme.colorScheme.primary),
 		)
 	}
 }

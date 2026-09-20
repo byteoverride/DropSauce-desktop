@@ -9,7 +9,6 @@ import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.Path
 import okio.buffer
-import okio.use
 import org.koitharu.kotatsu.shared.db.FavouriteCategoryEntity
 import org.koitharu.kotatsu.shared.db.LibraryDatabase
 import org.koitharu.kotatsu.shared.db.MangaEntity
@@ -385,7 +384,7 @@ class BackupRepository(
 					execSQL("DELETE FROM favourite_categories")
 				}
 
-				val categoryIds = restoreCategories(parsed.categories, mode) { created ->
+				val categoryIds = restoreCategories(parsed.categories) { created ->
 					if (created) categoriesCreated++ else categoriesMatched++
 				}
 
@@ -410,14 +409,13 @@ class BackupRepository(
 						historySkipped++
 						continue
 					}
-					db.historyDao().upsert(
-						record.toEntity().copy(
-							createdAt = minOf(
-								record.createdAt.takeIf { it > 0 } ?: record.updatedAt,
-								existing?.createdAt?.takeIf { it > 0 } ?: Long.MAX_VALUE,
-							),
-						),
-					)
+					// The earliest known "first read" wins, so re-importing an old backup does
+					// not make a title look newer than it is.
+					val firstSeen = listOfNotNull(
+						record.createdAt.takeIf { it > 0 },
+						existing?.createdAt?.takeIf { it > 0 },
+					).minOrNull() ?: record.updatedAt
+					db.historyDao().upsert(record.toEntity().copy(createdAt = firstSeen))
 					historyApplied++
 				}
 
@@ -475,7 +473,6 @@ class BackupRepository(
 	 */
 	private suspend fun restoreCategories(
 		categories: List<CategoryBackup>,
-		mode: RestoreMode,
 		onResolved: (created: Boolean) -> Unit,
 	): Map<Long, Long> {
 		val dao = db.favouriteCategoriesDao()
@@ -488,17 +485,12 @@ class BackupRepository(
 			val key = category.title.categoryKey()
 			val local = byTitle[key]
 			if (local != null) {
+				// Merge leaves a matched category's own sort key, order and visibility alone:
+				// the user set those on this machine and an import is not a reason to undo
+				// them. In replace mode the table was emptied first, so anything matched here
+				// was created by this same restore and there is nothing to overwrite either.
 				mapping[category.categoryId] = local.categoryId
-				if (mode == RestoreMode.Replace) {
-					// Replace mode emptied the table first, so anything matched here was
-					// created by this same restore; nothing to overwrite.
-					onResolved(false)
-				} else {
-					// Merge leaves a local category's own sort key, order and visibility
-					// alone. The user set those on this machine; an import is not a reason
-					// to undo them.
-					onResolved(false)
-				}
+				onResolved(false)
 				continue
 			}
 			val newId = dao.insert(category.toEntity(0L))

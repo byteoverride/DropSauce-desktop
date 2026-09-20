@@ -454,41 +454,50 @@ OkHttp and decodes with Skia (`org.jetbrains.skia.Image`), behind a small
 bounded `ImageCache`. One fewer dependency, and the client stays per
 source.
 
-### D20. OPEN BUG: page images 404 through the parser's client
+### D20. RESOLVED: page 404s were a cold cache, not our client
 
-**Not yet fixed. Parked deliberately; evidence recorded so it does not
-have to be re-derived.**
+**This decision recorded two wrong diagnoses before the right one. Both
+are kept, because the way each was ruled out is the useful part.**
 
-Some page images fail in the reader. Measured on MangaDex, chapter
-"prologue", 10 pages, with controls rather than guesses:
+**Wrong diagnosis 1 (mine).** A control showed `parserClient=404` against
+`bareClient=200` on the identical url, so I concluded our per-parser
+client was at fault and specifically that installing the parser as an
+OkHttp interceptor broke image requests.
+
+**Wrong diagnosis 2 (the downloads agent's).** Reading the jar, it found
+that for MangaDex the interceptor cannot be the cause, and proposed the
+shared cookie jar instead. Verified independently: `MangaDexParser`
+overrides neither `intercept` nor `getRequestHeaders`, and
+`FlexibleMangaParser.intercept` disassembles to exactly
+`chain.proceed(chain.request())`. A no-op passthrough cannot break
+anything, so diagnosis 1 was dead.
+
+**The actual cause**, from a live 2x2 control that also re-ran the first
+client last:
 
 ```
-page 0: parserClient=404  bareClient=200  freshAssignment=200  sameAfterFresh=true
-page 2: parserClient=404  bareClient=200  freshAssignment=200  sameAfterFresh=true
-total pages failing on first try: 2
+page 7
+  full client            = 404
+  no parser interceptor  = 200
+  no cookie jar          = 200
+  bare client            = 200
+  full client, with dump = 200
+  full client, again     = 200
 ```
 
-What that rules out, and what it does not:
+The same full client that 404s first succeeds later on the same url.
+**Whichever client asks first eats the 404**, so the earlier control was
+order-confounded: the full client was simply always first. MangaDex@Home
+nodes 404 a page they have not cached yet and serve it once warm.
 
-- **Not MangaDex.** A bare `OkHttpClient` fetches the *identical* url
-  successfully where our per-parser client gets a 404.
-- **Not an expired or node-specific url.** Re-resolving returns the same
-  url and the same host (`sameAfterFresh=true`), so the
-  re-resolve-and-retry loop currently in `PageImage` does **not** address
-  this. It was written against a hypothesis the control then disproved.
-  It is harmless and still useful for genuinely transient misses, but it
-  must not be mistaken for the fix.
-- **The cause is our own client**, specifically that the parser is
-  installed on it as an interceptor. That interceptor is right for API
-  requests (D1's trap) and appears to be wrong for image CDN requests.
+**Fix:** `PageImage` retries with a backoff (4 attempts, 400ms times the
+attempt number) instead of hammering immediately. Nothing about the
+client changes, and the separate image client that diagnosis 1 called
+for is not built, because it would have fixed nothing.
 
-The likely fix is a separate image client carrying the parser's static
-request headers but not the parser interceptor. That was half-tested and
-abandoned because `requestHeaders` is not exposed on `MangaParser`; the
-right accessor still needs finding. Note D1's opposite failure mode
-before changing this: some sources 403 covers for a client that does
-*not* send source headers, so "just use a bare client" is not safe
-either.
+**The lesson worth keeping:** a control that varies one thing but always
+in the same order is not a control. The line that cracked this was
+re-running the *first* configuration *last*.
 
 ### D16. No new dependency is added without appearing in this file first
 

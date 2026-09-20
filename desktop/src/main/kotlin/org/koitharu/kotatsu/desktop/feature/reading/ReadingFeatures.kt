@@ -18,7 +18,7 @@ object BookmarksFeature : Feature {
 
 	override val title: String = "Bookmarks"
 
-	override val glyph: String = "★"
+	override val glyph: String = "\u2605"
 
 	@Composable
 	override fun Content(context: FeatureContext, navigator: FeatureNavigator) {
@@ -32,7 +32,7 @@ object StatsFeature : Feature {
 
 	override val title: String = "Statistics"
 
-	override val glyph: String = "▦"
+	override val glyph: String = "\u25A6"
 
 	@Composable
 	override fun Content(context: FeatureContext, navigator: FeatureNavigator) {

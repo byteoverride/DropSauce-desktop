@@ -9,11 +9,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -40,7 +41,6 @@ import org.koitharu.kotatsu.desktop.ui.ErrorBox
 import org.koitharu.kotatsu.desktop.ui.LoadingBox
 import org.koitharu.kotatsu.desktop.ui.onEnter
 import org.koitharu.kotatsu.parsers.model.Manga
-import org.koitharu.kotatsu.parsers.model.MangaListFilterOptions
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 
 /** What is known about a source's filtering, once the parser has been asked. */
@@ -85,7 +85,7 @@ fun SourceBrowseScreen(
 		specState = SpecState.Ready(
 			spec = FilterSpec.of(
 				capabilities = capabilities,
-				options = loaded.getOrNull() ?: MangaListFilterOptions(),
+				options = loaded.getOrNull(),
 				availableSortOrders = orders,
 			),
 			optionsFailed = loaded.exceptionOrNull()?.describe(),
@@ -93,27 +93,27 @@ fun SourceBrowseScreen(
 	}
 
 	val ready = specState as? SpecState.Ready
-	val spec = ready?.spec
 
 	Column(modifier.fillMaxSize()) {
 		BrowseToolbar(
 			source = source,
-			spec = spec,
+			spec = ready?.spec,
 			queryText = queryText,
 			onQueryText = { queryText = it },
 			onSubmitQuery = {
 				val next = draft.copy(query = queryText.trim())
 				draft = next
-				applied = spec?.sanitize(next) ?: next
+				applied = ready?.spec?.sanitize(next) ?: next
 			},
 			showFilters = showFilters,
 			onToggleFilters = { showFilters = !showFilters },
-			appliedCount = spec?.let { countActive(it.sanitize(applied)) } ?: 0,
+			appliedCount = ready?.let { countActive(it.spec.sanitize(applied)) } ?: 0,
 		)
-		if (spec == null) {
+		if (ready == null) {
 			LoadingBox()
 			return@Column
 		}
+		val spec = ready.spec
 		ready.optionsFailed?.let { reason ->
 			Text(
 				text = "This source did not return its filter lists ($reason), so only the " +
@@ -256,7 +256,20 @@ private fun ResultGrid(
 
 	Column(modifier.fillMaxSize()) {
 		if (loading && items.isNotEmpty()) {
-			LinearProgressIndicator(Modifier.fillMaxWidth())
+			// A thin "more on the way" line above the grid, so the page the user is
+			// reading does not move while the next one loads.
+			Row(
+				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				CircularProgressIndicator(modifier = Modifier.size(14.dp))
+				Text(
+					text = "Loading more",
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
 		}
 		when {
 			items.isEmpty() && loading -> LoadingBox()

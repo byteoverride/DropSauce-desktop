@@ -290,7 +290,7 @@ class StatsRepositoryTest {
 
 	@Test
 	fun `durations are formatted for reading, not for precision`() {
-		assertEquals("–", formatDuration(0L))
+		assertEquals("\u2013", formatDuration(0L))
 		assertEquals("38s", formatDuration(38_000L))
 		assertEquals("14m", formatDuration(14 * 60_000L))
 		assertEquals("2h 14m", formatDuration(2 * 3_600_000L + 14 * 60_000L))

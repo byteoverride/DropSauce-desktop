@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.desktop.feature.download
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
@@ -186,11 +187,16 @@ internal class DownloadManager(
 			_isPaused.first { !it }
 			gate.withPermit { run(manga, mangaId, chapterId) }
 		}
-		val previous = jobs.put(key, job)
-		if (previous != null && previous.isActive) {
-			// Should not happen: enqueue and retry both refuse an active row. Cancel it
-			// rather than leak a second worker writing the same files.
-			previous.cancel()
+		// Atomically: take the slot only if nothing is already working this chapter. Two
+		// workers on one chapter would write the same files and race each other's state
+		// writes, and start() being called twice is enough to cause it.
+		val winner = jobs.compute(key) { _, existing ->
+			if (existing != null && existing.isActive) existing else job
+		}
+		if (winner !== job) {
+			// Never started, so its body never runs and it writes nothing.
+			job.cancel()
+			return
 		}
 		job.invokeOnCompletion { jobs.remove(key, job) }
 		job.start()
@@ -210,7 +216,10 @@ internal class DownloadManager(
 			),
 		)
 		try {
-			storage.prepare(dir)
+			// Disk work goes to the IO dispatcher. The queue runs on the app scope,
+			// which is Default, and blocking a Default thread on a file write ties up a
+			// worker thread that the UI's own recomposition work shares.
+			withContext(Dispatchers.IO) { storage.prepare(dir) }
 			val chapter = pageSource.chapters(manga).firstOrNull { it.id == chapterId }
 				?: throw IOException("This chapter is no longer listed by the source")
 			val pages = pageSource.pages(manga, chapter)
@@ -218,7 +227,7 @@ internal class DownloadManager(
 			writeProgress(mangaId, chapterId, total = pages.size, done = 0)
 			pages.forEachIndexed { index, page ->
 				val data = pageSource.fetch(manga, page)
-				storage.writePage(dir, index, data)
+				withContext(Dispatchers.IO) { storage.writePage(dir, index, data) }
 				writeProgress(mangaId, chapterId, total = pages.size, done = index + 1)
 			}
 			// Only now, with every page on disk under its final name, is the chapter
@@ -228,7 +237,7 @@ internal class DownloadManager(
 			// NonCancellable: this coroutine is already cancelled, so an ordinary
 			// suspending write here would itself be cancelled and the row would stay
 			// RUNNING, which is the exact state that resume-on-start has to clean up.
-			withContext(NonCancellable) {
+			withContext(NonCancellable + Dispatchers.IO) {
 				storage.delete(dir)
 				finish(mangaId, chapterId, DownloadState.CANCELLED, error = null)
 			}
@@ -236,7 +245,7 @@ internal class DownloadManager(
 		} catch (e: Exception) {
 			// A partial chapter is not worth keeping. Retry re-fetches everything
 			// anyway, because page N of the next attempt need not be page N of this one.
-			storage.delete(dir)
+			withContext(Dispatchers.IO) { storage.delete(dir) }
 			finish(mangaId, chapterId, DownloadState.FAILED, error = describe(e))
 		}
 	}
@@ -253,7 +262,7 @@ internal class DownloadManager(
 
 	private suspend fun deleteFiles(mangaId: Long, chapterId: Long) {
 		val sourceName = db.mangaDao().find(mangaId)?.source ?: return
-		storage.deleteChapter(sourceName, mangaId, chapterId)
+		withContext(Dispatchers.IO) { storage.deleteChapter(sourceName, mangaId, chapterId) }
 	}
 
 	private suspend fun write(row: DownloadEntity) {

@@ -64,7 +64,8 @@ fun BookmarksScreen(context: FeatureContext, navigator: FeatureNavigator) {
 	val scope = rememberCoroutineScope()
 	val bookmarks by remember(repository) { repository.observeAll() }.collectAsState(emptyList())
 	var grouping by remember { mutableStateOf(BookmarkGrouping.NEWEST) }
-	var openingPage: Long? by remember { mutableStateOf(null) }
+	// Keyed by the composite bookmark key: a page id alone is only unique within a title.
+	var openingKey: String? by remember { mutableStateOf(null) }
 	var failure: String? by remember { mutableStateOf(null) }
 
 	// One client for rows whose source no longer exists in the catalogue. Those page
@@ -78,14 +79,14 @@ fun BookmarksScreen(context: FeatureContext, navigator: FeatureNavigator) {
 			return
 		}
 		scope.launch {
-			openingPage = bookmark.pageId
+			openingKey = bookmark.keyOf()
 			failure = null
 			val details = runCatching {
 				withContext(Dispatchers.IO) {
 					context.sources.session(source).parser.getDetails(bookmark.manga)
 				}
 			}
-			openingPage = null
+			openingKey = null
 			details.onSuccess { full ->
 				val chapters = full.chapters.orEmpty()
 				val index = chapters.indexOfFirst { it.id == bookmark.chapterId }
@@ -153,7 +154,7 @@ fun BookmarksScreen(context: FeatureContext, navigator: FeatureNavigator) {
 							bookmark = bookmark,
 							context = context,
 							fallbackClient = fallbackClient,
-							busy = openingPage == bookmark.pageId,
+							busy = openingKey == bookmark.keyOf(),
 							onOpen = { open(bookmark) },
 							onDelete = {
 								scope.launch { repository.remove(bookmark.manga.id, bookmark.pageId) }
@@ -184,7 +185,7 @@ fun BookmarksScreen(context: FeatureContext, navigator: FeatureNavigator) {
 									bookmark = bookmark,
 									context = context,
 									fallbackClient = fallbackClient,
-									busy = openingPage == bookmark.pageId,
+									busy = openingKey == bookmark.keyOf(),
 									showTitle = false,
 									onOpen = { open(bookmark) },
 									onDelete = {
@@ -243,7 +244,7 @@ fun BookmarkToggle(
 		},
 		modifier = modifier,
 	) {
-		Text(if (isSaved) "★ Saved" else "☆ Bookmark")
+		Text(if (isSaved) "\u2605 Saved" else "\u2606 Bookmark")
 	}
 }
 
@@ -310,12 +311,12 @@ private fun BookmarkRow(
 				)
 			}
 			Text(
-				text = "Page ${bookmark.page + 1}  ·  ${(bookmark.percent * 100).toInt()}% through",
+				text = "Page ${bookmark.page + 1}  \u00B7  ${(bookmark.percent * 100).toInt()}% through",
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 			Text(
-				text = "${bookmark.sourceName}  ·  ${formatTimestamp(bookmark.createdAt)}",
+				text = "${bookmark.sourceName}  \u00B7  ${formatTimestamp(bookmark.createdAt)}",
 				style = MaterialTheme.typography.labelSmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)

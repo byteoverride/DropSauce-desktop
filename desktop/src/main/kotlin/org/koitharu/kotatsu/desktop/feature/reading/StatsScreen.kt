@@ -97,7 +97,7 @@ private fun StatsBody(report: StatsReport) {
 			SummaryTile("Sessions", report.sessions.toString(), Modifier.weight(1f))
 			SummaryTile(
 				label = "Streak",
-				value = if (report.streakDays == 0) "–" else "${report.streakDays}d",
+				value = if (report.streakDays == 0) "\u2013" else "${report.streakDays}d",
 				modifier = Modifier.weight(1f),
 			)
 		}
@@ -221,7 +221,7 @@ private fun TitleRow(title: TitleTime, busiest: Long) {
 				modifier = Modifier.weight(1f),
 			)
 			Text(
-				text = "${formatDuration(title.duration)}  ·  ${title.pages}p",
+				text = "${formatDuration(title.duration)}  \u00B7  ${title.pages}p",
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)

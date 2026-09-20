@@ -39,6 +39,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koitharu.kotatsu.parsers.model.Manga
@@ -299,12 +300,14 @@ private fun PageImage(
 	LaunchedEffect(page.id) {
 		failed = false
 		bitmap = null
-		// Resolve, fetch, and on failure resolve AGAIN rather than retrying the same
-		// address. MangaDex@Home hands out a node per request and individual nodes
-		// legitimately 404 single pages; the expected client behaviour is to ask for a
-		// different node. Retrying the same url just 404s again, which is exactly what
-		// the first version of this did.
+		// Retry with a pause, because the failure is transient rather than structural.
+		// Measured with a live 2x2 control (DECISIONS.md D20): whichever client requests
+		// a given page url FIRST gets a 404, and every later request for the same url
+		// through the very same client gets a 200. So the node is cold on first touch,
+		// not hostile to our client. An immediate retry is often still too early, which
+		// is why this backs off rather than hammering.
 		for (attempt in 1..PAGE_ATTEMPTS) {
+			if (attempt > 1) delay(PAGE_RETRY_DELAY_MS * (attempt - 1))
 			val url = runCatching {
 				withContext(Dispatchers.IO) { state.sources.pageUrl(source, page) }
 			}.getOrNull()
@@ -341,7 +344,10 @@ private fun PageImage(
 }
 
 /** How many times to re-resolve and refetch a page before giving up on it. */
-private const val PAGE_ATTEMPTS = 3
+private const val PAGE_ATTEMPTS = 4
+
+/** Backoff between page attempts, multiplied by the attempt number. */
+private const val PAGE_RETRY_DELAY_MS = 400L
 
 private const val MIN_SCALE = 1f
 private const val MAX_SCALE = 6f
