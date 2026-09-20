@@ -3,7 +3,8 @@
 Every significant technical choice for the Linux desktop port, with a
 one-line rationale, plus everything deliberately left out of v1.
 
-Status: **Phase 1 recon in progress. Plan approved; no code written yet.**
+Status: **Phase 1 complete, all five agents reported. Plan approved; no
+code written yet. The toolchain gate (D6) passed on a real build.**
 Decisions revised by Phase 1 findings are marked as such in place, with
 the superseded reasoning stated rather than silently dropped. Agent
 reports live in `docs/porting/`.
@@ -135,10 +136,16 @@ reimplementation of the Android APIs extensions link against
 
 ```
 settings.gradle
-  :app       Android, unchanged in kind, gradually thinned
-  :shared    Kotlin Multiplatform, targets androidTarget() + jvm()
+  :app       Android, Groovy DSL, unchanged in kind, gradually thinned
+  :shared    Kotlin Multiplatform, android + jvm() targets
+             MUST apply com.android.kotlin.multiplatform.library,
+             NOT com.android.library (see D6)
   :desktop   JVM only, Compose for Desktop application
 ```
+
+Groovy and Kotlin DSL build files coexist in one build (proven in
+Phase 1), so `:app` keeps its Groovy build file and only the new modules
+need Kotlin DSL.
 
 `:shared` is populated by **moving** code out of `:app`, never by
 copying. `:app` then depends on `:shared`. Each move is its own commit,
@@ -182,22 +189,66 @@ drag `list/ui/` (56 files) into `:shared` with it, or fail. Doing the
 decoupling as plain Android refactors first keeps every step verifiable
 against the existing gate and leaves a smaller, cleaner thing to move.
 
-### D6. The toolchain compatibility question is settled before anything else
+### D6. The toolchain gate: PASSED
 
-The app is on Kotlin 2.3.21 with Compose material3 pinned to
-`1.5.0-alpha28` for the Material 3 **Expressive** APIs, which the theme
-itself depends on. Compose Multiplatform's latest stable is **1.12.0**.
-Two things must be proven with a real build, not assumed:
+**Proven by build in Phase 1, not assumed.** These compiled together in
+one Gradle build, with both a `jvm()` and an android target, a real
+`@Entity`/`@Dao`/`@Database` and a real `@Composable` desktop `Window`:
 
-- Kotlin 2.3.21 works with the CMP Gradle plugin (one Kotlin version
-  serves the whole build; there is no per-module escape hatch)
-- CMP's material3 exposes `MotionScheme`, `MaterialShapes`, `ButtonGroup`,
-  wavy progress and the FAB menu
+| | version |
+|---|---|
+| Kotlin | 2.3.21 |
+| `org.jetbrains.kotlin.plugin.compose` | 2.3.21 |
+| Compose Multiplatform | 1.12.0 (confirmed latest stable) |
+| Room KMP | 2.8.4 |
+| KSP | 2.3.6 |
+| `androidx.sqlite:sqlite-bundled` | 2.8.0-alpha01 |
+| AGP | 9.2.1 |
 
-If the second is false, the "portable" Compose screens
-(`settings/compose`, `details/ui`, `stats/ui`) need their theme rewritten
-and their reuse value drops sharply. **This is Phase 1 Agent E's first
-job and it gates the v1 UI scope.**
+`BUILD SUCCESSFUL`, configuration cache stored. **There is no Kotlin/CMP
+version gap**, which was the thing most likely to sink the plan.
+
+**The real blocker was somewhere else entirely.** Since AGP 9.0,
+`com.android.library` + `kotlin.multiplatform` is a **hard error**.
+`:shared` must apply `com.android.kotlin.multiplatform.library`, and that
+plugin's documented `androidLibrary { }` block is already deprecated at
+AGP 9.2.1 + KGP 2.3.21 in favour of `kotlin { android { } }`. Nothing in
+the Phase 0 plan anticipated this and it is the largest structural
+constraint in the port.
+
+Also proven, so D4 and D7 hold: Groovy and Kotlin DSL build files coexist
+in one build (so `:app` stays Groovy); `:app` -> `:shared` works
+end-to-end with Hilt generating a real `Provider<SharedThing>` and the
+shared class landing in the APK dex; and plain Dagger 2 + KSP on a JVM
+target generates `DaggerDesktopComponent`.
+
+**Trap to pin on day one:** unpinned, `:shared`'s android bytecode
+compiles to Java 21 while `:app` targets Java 11, and
+`:app:assembleDebug` still passes. Silent divergence.
+
+### D6a. Pin CMP material3 to 1.12.0-alpha03 for the Expressive APIs
+
+CMP's material3 is **version-decoupled from CMP**: `compose.material3`
+in CMP 1.12.0 resolves to material3 **1.9.0**, and a
+`material3:1.12.0` does not exist (404). In 1.9.0 `MotionScheme`,
+`MaterialExpressiveTheme` and `.expressive()` are present but
+**`internal`** (proven by Kotlin name mangling, `expressive$material3()`
+in 1.9.0 against `expressive()` in 1.12.0-alpha03, and by a control pair
+where identical source compiles clean against the alpha and emits 24
+errors against 1.9.0), while `MaterialShapes`, `ButtonGroup`, the wavy
+indicators and the FAB menu are absent entirely.
+
+**Decision:** pin `org.jetbrains.compose.material3:material3:1.12.0-alpha03`.
+It corresponds to androidx material3 1.5.0-alpha22, six alphas behind the
+app's 1.5.0-alpha28 but in the same line.
+
+**The fallback is cheap, which is why this is not a risk.** Without the
+pin the exposure is **two files**: `settings/compose/SettingsTheme.kt`
+(`MaterialExpressiveTheme` + `MotionScheme.expressive()`) and
+`details/ui/ProgressComponents.kt` (`LinearWavyProgressIndicator`).
+`ExperimentalMaterial3ExpressiveApi` appears in **0** source files; it is
+one global compiler flag. The Phase 0 draft's fear that the whole theme
+would need rewriting was wrong.
 
 ### D7. Dependency injection: Hilt stays on Android, plain Dagger 2 on desktop
 
@@ -284,10 +335,13 @@ neither of which exists on desktop.
 
 ### D12. Packaging is `packageDeb` via Compose `nativeDistributions`
 
-jpackage bundles a JRE automatically. An AppImage task is not in v1.
-
-**Rationale:** `.deb` is one Gradle block; AppImage needs an external
-toolchain.
+**Confirmed empirically in Phase 1**, not assumed. A real
+`dropsauce-probe_1.0.0_amd64.deb` was produced on this machine: **53.5 MB**
+packed, 137 MB installed, **106 files under `lib/runtime/`** including a
+55 MB `lib/modules`, and a `Depends:` line listing only C libraries
+(`libc6`, `libfreetype6`, `libx11-6`, ...) with **no JVM dependency**, so
+the bundled runtime is genuinely self-contained. `dpkg-deb` and
+`fakeroot` are both present here. AppImage stays out of v1.
 
 ### D13. "Wayland" means XWayland, and the docs will say so
 
@@ -297,7 +351,8 @@ not something this port can deliver.
 
 **Rationale:** stating it is more useful than a checkbox that implies
 something untrue. It will run on a Wayland desktop; it will not be a
-native Wayland client.
+native Wayland client. **Confirmed empirically:** the probe app launched
+and held a window for 90 seconds over XWayland on this machine.
 
 ### D14. Migrations move to `:shared`, rewritten once against `SQLiteConnection`
 
@@ -362,9 +417,10 @@ Planned for v1, each already justified above:
 | Coordinate | For |
 |---|---|
 | `org.jetbrains.compose` Gradle plugin 1.12.0 | Compose for Desktop |
-| `androidx.sqlite:sqlite-bundled` | desktop SQLite driver for Room KMP |
+| `androidx.sqlite:sqlite-bundled:2.8.0-alpha01` | desktop SQLite driver for Room KMP (this exact version is the one proven in the D6 gate build) |
+| `org.jetbrains.compose.material3:material3:1.12.0-alpha03` | Expressive APIs, see D6a |
 | ~~`org.graalvm.polyglot:js`~~ | **Struck for v1.** See D17. |
-| `org.json:json` | parsers runtime; Android gets it from the platform, JVM does not |
+| ~~`org.json:json`~~ | **Not needed as an explicit dependency.** It arrives transitively with the parsers jar; the instruction is to stop applying the app's `exclude group: 'org.json'`, not to add a coordinate. |
 | `com.google.dagger:dagger` + `dagger-compiler` | desktop DI (D7) |
 
 ### D17. `evaluateJs` is not implemented on desktop, and GraalJS is struck from v1

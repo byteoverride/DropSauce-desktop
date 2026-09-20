@@ -139,13 +139,13 @@ in the same family.
 | `kotlinx-serialization-*` | keep |
 | `okhttp`, `okhttp-brotli`, `-zstd`, `-tls`, `-dnsoverhttps`, `okio` | keep |
 | `org.jsoup:jsoup` | keep |
-| `xmlutil-core` (`core-android`) | **swap** to `core-jvm` |
+| `xmlutil-core` (`core-android`) | **swap to the root KMP artifact `io.github.pdvrieze.xmlutil:core`**, not `core-jvm`. At the app's pinned 0.91.3 there is no `core-jvm` publication (its versions jump 0.90.0-RC3 -> 1.0.0); the JVM variant at 0.91.3 is published as **`core-jvmcommon`** (`env=standard-jvm`, `type=jvm`) and is reached through the root module's Gradle metadata. |
 | `xmlutil-serialization` | keep |
 | `androidx.room:room-runtime` / `-ktx` / `-compiler` | **swap** to `room-runtime` KMP + `androidx.sqlite:sqlite-bundled`. Note `room-ktx:2.8.4` is an **empty shim**: its `classes.jar` holds one 6-byte version marker and nothing else, so dropping it changes nothing. `withTransaction` actually lives in `room-runtime`'s *Android* source set, so it is the room-runtime **variant** that must change. `room-runtime-jvm:2.8.4` is **404 on Maven Central** and only on Google Maven, so the desktop module needs `google()` in its repositories. |
 | `coil3` core/compose/network-okhttp/gif/svg | keep (Coil 3 supports JVM desktop) |
-| `androidx.compose.*` + BOM | **swap** to `org.jetbrains.compose` (CMP). Latest stable on Maven Central is **1.12.0**. |
-| `androidx.compose.material3:1.5.0-alpha28` (Expressive) | **risk.** CMP's material3 tracks a different androidx version. Whether `MotionScheme`, `MaterialShapes`, `ButtonGroup`, wavy progress and the FAB menu are present in the CMP build must be verified before committing to reusing the Compose screens verbatim. Assigned to Phase 1 Agent E. |
-| `androidx.graphics:graphics-shapes` | check for a KMP variant; otherwise reimplement the few shapes used |
+| `androidx.compose.*` + BOM | **swap** to `org.jetbrains.compose` (CMP) **1.12.0**, confirmed latest stable. |
+| `androidx.compose.material3:1.5.0-alpha28` (Expressive) | **Resolved. CMP's material3 is version-decoupled from CMP itself:** `compose.material3` in CMP 1.12.0 resolves to material3 **1.9.0**, and `org.jetbrains.compose.material3:material3:1.12.0` is a 404. In 1.9.0 the Expressive APIs are present but **`internal`** (proven by name mangling: `expressive$material3()` in 1.9.0 vs `expressive()` in 1.12.0-alpha03) and `MaterialShapes`/`ButtonGroup`/wavy/FAB-menu are absent. Pinning `material3:1.12.0-alpha03` makes them public; it corresponds to androidx material3 1.5.0-alpha22, six alphas behind the app's 1.5.0-alpha28. See D6a. |
+| `androidx.graphics:graphics-shapes` | **keep**, `graphics-shapes-desktop` is published (1.1.0) |
 | `androidx.lifecycle:lifecycle-viewmodel` | KMP artifacts exist; `-service`, `-process` are Android-only |
 | `com.google.dagger:hilt-android` + `androidx.hilt:hilt-work` | **drop.** Hilt has no desktop target. |
 | `androidx.work:work-runtime` | drop, replaced by coroutines |
@@ -198,15 +198,51 @@ an ordinary Android change verified by `:app:assembleDebug`.
 
 ## G. Things that will bite
 
-1. **Compose Material 3 Expressive on CMP.** The Android app opts into
-   `ExperimentalMaterial3ExpressiveApi` globally and uses it in the theme
-   itself. If CMP's material3 lacks those APIs, every "portable" Compose
-   screen needs its theme rewritten. Verify first, port second.
-2. **Kotlin 2.3.21 vs CMP 1.12.0.** The app is on a very recent Kotlin.
-   CMP pins a compose-compiler range. If they do not line up, either the
-   desktop module uses a different Kotlin version (not possible inside one
-   build) or the whole project moves Kotlin version (touches the Android
-   gate). This is the first thing to test.
+**Items 1, 2 and 6 of the Phase 0 draft were tested in Phase 1. Two were
+overstated and one was simply wrong; they are corrected here rather than
+left standing.**
+
+1. ~~Compose Material 3 Expressive on CMP~~ **Overstated.** The draft
+   said that if CMP's material3 lacks the Expressive APIs, "every
+   portable Compose screen needs its theme rewritten". Measured: the
+   worst case is **two files**. `ExperimentalMaterial3ExpressiveApi`
+   appears in **0** source files (it is one global compiler flag in
+   `app/build.gradle`), and real Expressive symbol usage is confined to
+   `settings/compose/SettingsTheme.kt` (`MaterialExpressiveTheme`,
+   `MotionScheme.expressive()`) and `details/ui/ProgressComponents.kt`
+   (`LinearWavyProgressIndicator`). `MaterialShapes` appears only inside
+   a comment; `FloatingActionButtonMenu` and `CircularWavyProgressIndicator`
+   appear nowhere; the `ButtonGroup` hits are
+   `com.google.android.material.button.MaterialButtonGroup` (an Android
+   View) and the app's own private `ThemeButtonGroup` composable. The
+   real constraint is different and is now D6a.
+2. ~~Kotlin 2.3.21 vs CMP 1.12.0~~ **Refuted, there is no gap.** Kotlin
+   2.3.21 + `kotlin.plugin.compose` 2.3.21 + CMP 1.12.0 + Room 2.8.4 KMP
+   + KSP 2.3.6 + `sqlite-bundled` 2.8.0-alpha01 + AGP 9.2.1 all compiled
+   in one build with both `jvm()` and android targets, config cache
+   stored. The actual blocker is AGP, not Kotlin: see item 7.
+3. **Room KMP and the 36 migrations.** Resolved, see DECISIONS.md D14.
+4. **`org.json`.** Corrected: it arrives **transitively** with the
+   parsers jar, so the instruction is "stop excluding it", not "add it".
+5. **`configuration-cache = true` and `parallel = true`.** Tested clean:
+   the CMP, KSP and Room plugins all store and reuse the configuration
+   cache with zero problems.
+6. ~~Lint is `warningsAsErrors = true`, so a shared-module change breaks
+   the gate~~ **Refuted with a positive control:** `:app` does not
+   analyse `:shared` at all. The real risk is the inverse, that
+   `:shared` gets no runnable lint task and is simply unchecked. A
+   separate live risk does exist though: `AndroidGradlePluginVersion`
+   combined with `warningsAsErrors` can fail the gate on its own the day
+   a newer Gradle ships, with no change from us.
+7. **AGP 9 forbids the obvious module setup, and this is the largest
+   structural constraint found.** Since AGP 9.0, `com.android.library`
+   combined with `kotlin.multiplatform` is a hard error. `:shared` must
+   apply `com.android.kotlin.multiplatform.library`, and that plugin's
+   documented `androidLibrary { }` block is *already deprecated* at AGP
+   9.2.1 + KGP 2.3.21 in favour of `kotlin { android { } }`.
+8. **Silent Java target divergence.** Left unpinned, `:shared`'s android
+   bytecode compiles to Java 21 (major 65) while `:app` is on Java 11,
+   and `:app:assembleDebug` still passes. Pin the toolchain explicitly.
 3. **Room KMP and the 36 migrations.** Migrations use
    `SupportSQLiteDatabase`. Room KMP migrations use `SQLiteConnection`.
    All 36 need mechanical conversion, and the desktop app has no existing
