@@ -41,8 +41,33 @@ natively JVM, and the Android app keeps the two that are not.
 
 ### D1. Desktop v1 sources come from the native `kotatsu-parsers` catalogue
 
-Implement `DesktopMangaLoaderContext : MangaLoaderContext` (7 abstract
-members) and drive `newParserInstance(MangaParserSource.X)`.
+Implement `DesktopMangaLoaderContext : MangaLoaderContext` (**8**
+abstract members, not 7) and drive `newParserInstance(MangaParserSource.X)`.
+
+**Phase 1 proved this rather than estimating it.** Agent B wrote a 55-line
+Java stub context, put it on a stock JDK 21 classpath (kotlin-stdlib,
+okhttp-jvm, okio-jvm, coroutines, jsoup, org.json, collection-jvm) and
+ran it: all **1270** `MangaParserSource` constants instantiated,
+`ok=1270 fail=0`, and live `getList` -> `getDetails` -> `getPages` chains
+completed against MangaDex, a Madara site and a ZeistManga site. The
+catalogue jar is also Android-free under a positive control:
+`grep -rlE "android[^x]"` across all 3365 classes returns 0 while the
+same grep for `androidx` returns 296, so the detector fires and the code
+is genuinely clean.
+
+**The trap that must be in the design from day one.**
+`MangaParser extends okhttp3.Interceptor`, and
+`parsers/core/MangaParserWrapper.intercept` is the **only** place a
+parser's `getRequestHeaders()` (User-Agent, Referer) is merged into an
+outgoing request. Verified in bytecode: it reads the chain request's
+headers, merges `MangaParser.getRequestHeaders()` via
+`OkHttpUtils.mergeWith`, rebuilds the request and delegates through a
+`ProxyChain`. **Nothing in the library installs that interceptor.** A
+host that builds one shared OkHttpClient and hands it to every parser
+sends no per-source headers and collects 403s, and it still compiles and
+MangaDex still works, which is exactly how this survives to production.
+The desktop host must construct a per-parser client with the parser
+installed as an interceptor.
 
 **Rationale:** it is the only remote backend that runs on the JVM at all,
 it needs ~300 lines of new host code rather than a dex loader and an
@@ -338,9 +363,50 @@ Planned for v1, each already justified above:
 |---|---|
 | `org.jetbrains.compose` Gradle plugin 1.12.0 | Compose for Desktop |
 | `androidx.sqlite:sqlite-bundled` | desktop SQLite driver for Room KMP |
-| `org.graalvm.polyglot:js` | `MangaLoaderContext.evaluateJs` |
+| ~~`org.graalvm.polyglot:js`~~ | **Struck for v1.** See D17. |
 | `org.json:json` | parsers runtime; Android gets it from the platform, JVM does not |
 | `com.google.dagger:dagger` + `dagger-compiler` | desktop DI (D7) |
+
+### D17. `evaluateJs` is not implemented on desktop, and GraalJS is struck from v1
+
+**This reverses the dependency choice in D16 and part of PORTING_NOTES §C.**
+
+The plan budgeted GraalJS to serve `MangaLoaderContext.evaluateJs`.
+GraalJS cannot serve it. Agent B disassembled all 5 call sites: **zero**
+use the 1-argument `evaluateJs(script)` overload. All 5 use
+`evaluateJs(url, script)`, and the script bodies run *inside that URL's
+loaded page*, reading `window.localStorage.getItem(...)` and
+`new URLSearchParams(window.location.search).get(...)`. That needs a DOM,
+an origin and a navigation. GraalJS has none of them, so it would not be
+a partial implementation, it would be a non-implementation.
+
+**Decision:** desktop's `evaluateJs` throws a clean typed
+`UnsupportedOperationException`, matching how the library's own
+`requestBrowserAction` default behaves (verified: it throws
+`UnsupportedOperationException("Browser is not available")`, it does not
+return `Void` as the Phase 0 draft said). No new dependency.
+
+**Blast radius, measured not guessed:** by reflecting over all 1270
+sources, `evaluateJs` affects **11**, and `requestBrowserAction` affects
+**2** (`KOHARU`, `ZENMANGA`). `redrawImageResponse` / `createBitmap`
+affect **13**, and those two *are* implemented, with
+`BufferedImage` + `Graphics2D`, which is sufficient because
+`parsers.bitmap.Bitmap` exposes only `getWidth`, `getHeight` and
+`drawBitmap` with no pixel access.
+
+GraalJS returns as a dependency question when D2 (LNReader plugins) is
+picked up in v1.1. That is a different problem: those plugins need
+Promises and a bridged `fetch`, not a DOM.
+
+### D18. The catalogue is smaller than 1270 and the UI must say so
+
+Agent B measured `isBroken == true` on **380 of 1270** sources, 30% of
+the catalogue, and a random 12-source live sample of the *non*-broken
+remainder had roughly 4 fully working.
+
+So the sources screen must filter `isBroken` by default and must not
+present 1270 as the number of usable sources. Sequencing note: this needs
+deciding before the catalogue UI is designed, not after.
 
 ---
 
@@ -348,7 +414,8 @@ Planned for v1, each already justified above:
 
 ### In
 
-- Browse the `kotatsu-parsers` catalogue: enable and disable sources
+- Browse the `kotatsu-parsers` catalogue: enable and disable sources,
+  with `isBroken` sources filtered by default (D18)
 - Per-source list browsing with sort orders and filters
 - Search within a source
 - Manga details: cover, description, tags, chapter list
@@ -379,6 +446,8 @@ Planned for v1, each already justified above:
 | Text to speech | `android.speech.tts`; Linux needs speech-dispatcher |
 | App lock, biometric or PIN | no threat model on a desktop session |
 | AVIF pages | no JVM decoder exists; fails with a clear error, not a stub |
+| WebP page decoding via the region decoder | ImageIO has no WebP reader; WebP falls back to full-image Skia decode with downsampling (D10) |
+| The 11 sources needing `evaluateJs` and the 2 needing `requestBrowserAction` | D17, both throw a typed exception |
 | Interactive Cloudflare solving | needs an embedded browser (KCEF, ~100 MB into the .deb). Sources behind an active challenge will fail with a clear error. |
 | Home screen widgets, app shortcuts, Shizuku | Android platform concepts |
 | Double-page and reversed-double reader modes, page animations, configurable tap grid, colour filters, upscaling | reader polish; two modes is a reader |

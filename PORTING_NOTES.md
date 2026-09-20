@@ -93,8 +93,8 @@ Runs on desktop JVM with no change beyond a source-set move.
 | Subsystem | Android today | Desktop |
 |---|---|---|
 | **Parser host context** | nothing (never instantiated) | New `DesktopMangaLoaderContext : MangaLoaderContext`. Needs: OkHttp client, a `CookieJar`, `evaluateJs` (two overloads), `getConfig(source)`, `getDefaultUserAgent()`, `redrawImageResponse`, `createBitmap`. This is the single highest-value piece of new code in the port. |
-| **JS engine** | QuickJS (`app.cash.quickjs`, Mihon compat) and a headless `WebView` (LNReader) | GraalJS (`org.graalvm.polyglot:js`) on the JVM. Has a real job queue, so the Promise-based LNReader contract works, unlike QuickJS. Needs `TextEncoder`/`TextDecoder` shims, which map cleanly onto `java.nio.charset` (GBK, Big5, Shift_JIS, EUC-KR are all JDK charsets). |
-| **Cloudflare / interactive challenge** | `WebViewExecutor` headless WebView + `AndroidCookieJar` over `android.webkit.CookieManager` | No WebView. Options are JCEF/KCEF (~100 MB, drags a Chromium into the .deb) or no interactive solve at all. See `DECISIONS.md`. Cookie jar becomes a plain persistent OkHttp `CookieJar` on disk. |
+| **JS engine** | QuickJS (`app.cash.quickjs`, Mihon compat) and a headless `WebView` (LNReader) | **Not needed for v1.** The parser catalogue's `evaluateJs` cannot be served by GraalJS at all: all 5 call sites use the `(url, script)` overload and the scripts read `window.localStorage` and `window.location.search`, so they need a real loaded page. Desktop throws a typed `UnsupportedOperationException` instead, costing 11 of 1270 sources. See DECISIONS.md D17. GraalJS returns for D2 (LNReader) in v1.1, where the requirement is Promises plus a bridged `fetch` rather than a DOM, and `TextEncoder`/`TextDecoder` shims map cleanly onto `java.nio.charset`. |
+| **Cloudflare / interactive challenge** | a full Activity in `browser/cloudflare/` (**not** `WebViewExecutor`, which is 25 lines returning a User-Agent string) + `AndroidCookieJar` over `android.webkit.CookieManager` | No WebView. Options are JCEF/KCEF (~100 MB, drags a Chromium into the .deb) or no interactive solve at all. See `DECISIONS.md`. Cookie jar becomes a plain persistent OkHttp `CookieJar` on disk. |
 | **Image decoding** | `ImageDecoder` / `BitmapFactory` / `BitmapRegionDecoder`, AVIF via `org.aomedia` native | Skia via Skiko for full-image decode. For **region/tiled** decode, Skiko has no equivalent but **the JDK does**: `javax.imageio.ImageReadParam.setSourceRegion` is `BitmapRegionDecoder`'s contract with no new dependency. Measured on this machine (JDK 21): a 2000x12000 PNG region-read of 2000x1000 took 121ms, the same JPEG 20ms, both verified against a positive control pixel. Reader formats available are JPG, PNG, TIFF, BMP, GIF, WBMP. **No WebP**, and `PageLoader.kt:341` sends `Accept: image/webp,...` so WebP is the *preferred* wire format. AVIF: no JVM decoder ships with Skiko. |
 | **Zoomable/tiled page view** | `subsampling-scale-image-view` (17 files) | Hand-written Compose: `Modifier.graphicsLayer` + `pointerInput` transform gestures, with a downsample-on-load strategy instead of true tiling. |
 | **HTTP image pipeline** | Coil 3.4.0 with 11 custom components | Coil 3 is multiplatform and supports JVM desktop. The custom fetchers/keyers/interceptors port; `MihonImageFetcher` does not (no Mihon). |
@@ -178,7 +178,6 @@ in `DECISIONS.md` before any is added.
 |---|---|
 | Compose for Desktop runtime + packaging | `org.jetbrains.compose` Gradle plugin 1.12.0 |
 | Desktop SQLite driver | `androidx.sqlite:sqlite-bundled` |
-| JS engine for parser `evaluateJs` | `org.graalvm.polyglot:js` |
 | Logging | `org.slf4j:slf4j-simple`, or none |
 | Cloudflare interactive solve (if taken) | `dev.datlag:kcef` |
 
