@@ -5,6 +5,8 @@ plugins {
 	// NOT com.android.library: since AGP 9.0 that plugin cannot be combined with
 	// kotlin.multiplatform. See DECISIONS.md D6.
 	alias(libs.plugins.android.kotlin.multiplatform.library)
+	alias(libs.plugins.ksp)
+	alias(libs.plugins.room)
 }
 
 kotlin {
@@ -33,9 +35,21 @@ kotlin {
 		getByName("commonMain").dependencies {
 			implementation(libs.kotlinx.coroutines.core)
 			api(libs.okio)
+			api(libs.androidx.room.runtime)
+			implementation(libs.androidx.sqlite.bundled)
 		}
 		getByName("commonTest").dependencies {
 			implementation(kotlin("test"))
+			implementation(libs.kotlinx.coroutines.test)
 		}
 	}
+}
+
+room {
+	schemaDirectory("$projectDir/schemas")
+}
+
+dependencies {
+	add("kspJvm", libs.androidx.room.compiler)
+	add("kspAndroid", libs.androidx.room.compiler)
 }
