@@ -1,0 +1,190 @@
+# PORTING_NOTES.md
+
+Android-framework and third-party dependency inventory, with the desktop
+replacement for each. Companion to `ARCHITECTURE.md`; scope decisions live
+in `DECISIONS.md`.
+
+Counts are file counts in `app/src/main/kotlin` unless stated otherwise.
+
+## A. How coupled is the code, really
+
+| Slice | Files | Files with no `android.*` / `androidx.*` / `com.google.android.*` import |
+|---|---|---|
+| all of `main` | 1145 | 298 (26%) |
+| every `data/` + `domain/` dir | 182 | 89 (49%) |
+| every `ui/` dir | 499 | 73 (15%) |
+
+26% sounds bad and is misleading. The imports that dominate `data/` and
+`domain/` are shallow:
+
+```
+26 android.content.Context      11 androidx.room.withTransaction
+11 androidx.room.ColumnInfo     10 androidx.room.Entity
+ 8 androidx.room.Query           8 androidx.room.ForeignKey
+ 8 androidx.room.Dao             8 androidx.core.net.toUri / toFile
+ 8 androidx.annotation.StringRes 7 androidx.core.content.edit
+ 7 android.net.Uri               5 androidx.sqlite.db.SupportSQLiteQuery
+ 3 android.util.Log              3 android.content.SharedPreferences
+```
+
+Room annotations are multiplatform. `androidx.annotation` is
+multiplatform. What actually has to go is `Context`, `Uri`,
+`SharedPreferences`, `Log`, `DocumentFile`, and the `SupportSQLite*`
+raw-query API.
+
+The `ui/` number is honest: that code is genuinely Android UI and is
+rewritten, not ported.
+
+## B. Bucket (a): portable as-is
+
+Runs on desktop JVM with no change beyond a source-set move.
+
+| What | Where | Note |
+|---|---|---|
+| `kotatsu-parsers` models and utils | dependency | `Manga`, `MangaChapter`, `MangaPage`, `MangaSource`, `MangaListFilter`, `MangaListFilterCapabilities`, `MangaListFilterOptions`, `SortOrder`, `ContentType`, `parsers.util.*`. Pure JVM jar. |
+| `kotatsu-parsers` site catalogue | dependency | 3213 parser classes, unused today. See bucket (b) for the host context it needs. |
+| kotlinx-coroutines | dependency | `-core` is multiplatform; only `-android` must go. |
+| kotlinx-serialization (json, json-okio, protobuf) | dependency | multiplatform |
+| OkHttp 5.3.2 + brotli/zstd/tls/dnsoverhttps, Okio | dependency | JVM native |
+| jsoup | dependency | JVM native |
+| xmlutil | dependency | swap `core-android` for `core-jvm` |
+| Room entities, DAOs, migrations | `core/db`, `*/data` | Room 2.8.4 publishes `room-runtime-jvm`. Annotations are unchanged. Exceptions in bucket (b). |
+| Enum/value prefs types | `core/prefs/*.kt` except `AppSettings`/`SourceSettings` | `ColorScheme`, `ListMode`, `ReaderMode`, `NetworkPolicy`, `TriStateOption`, ... plain enums |
+| Domain use cases and mappers | `*/domain` | the android-free half of the 182 |
+| `core/util/*` non-ext helpers | `core/util` | `FileSize`, `MimeTypes`, `iterator/`, `progress/` |
+| Interceptors without Android types | `core/network` | `RateLimitInterceptor`, `GZipInterceptor`, `CommonHeaders*`, `CacheLimitInterceptor`, `DoHProvider`, `imageproxy/*` |
+| Backup model/serialisation | `backup/` | the zip+json format itself; the file picking is not |
+| Scrobbling API clients | `scrobbling/*/data` | 31 of 56 scrobbling files are already android-free |
+| Most Compose composables | `settings/compose`, `details/ui`, `stats/ui` | see bucket (b) for the specific snags |
+
+## C. Bucket (b): needs a desktop implementation behind an interface
+
+### Platform types that leak everywhere
+
+| Android thing | Sites | Desktop replacement |
+|---|---|---|
+| `android.content.Context` | ~500 imports of `android.content`, injected as `@ApplicationContext` | Delete from shared code. Split into narrow interfaces: `AppPaths` (data/cache/config dirs), `StringProvider`, `ClipboardService`, `Notifier`, `UriOpener`. Desktop supplies XDG-based impls. |
+| `android.net.Uri` | 72 `android.net` imports, plus `androidx.core.net.toUri` / `toFile` | `okio.Path` for filesystem, `okhttp3.HttpUrl` for remote, a small `ContentRef` sealed type where the app genuinely mixes both (local CBZ page addressing uses a `zip://` scheme). |
+| `SharedPreferences` (`AppSettings`, 1501 lines) | 1 god object, read from ~200 places | Interface `Settings` with the same property names, backed on desktop by `java.util.prefs` or a JSON file + `StateFlow`. `observeChanges` becomes a `MutableSharedFlow<String>` of changed keys. Android keeps the SharedPreferences impl. |
+| `android.util.Log` | 82 `android.util` imports | tiny `Logger` interface, `println`/SLF4J on desktop |
+| `androidx.documentfile.DocumentFile`, SAF, `OpenDocumentTreeHelper` | `local/`, `settings/storage` | plain `java.io.File` + an AWT/Compose file chooser. SAF has no desktop analogue and does not need one. |
+| `android.graphics.Bitmap` / `Rect` / `Color` | `core/image`, reader, parsers descrambling | Skia (`org.jetbrains.skia.Image`, via Compose's bundled Skiko) for decode; `parsers.bitmap.Bitmap` already has a platform-free interface to implement. |
+
+### Subsystems needing a real desktop implementation
+
+| Subsystem | Android today | Desktop |
+|---|---|---|
+| **Parser host context** | nothing (never instantiated) | New `DesktopMangaLoaderContext : MangaLoaderContext`. Needs: OkHttp client, a `CookieJar`, `evaluateJs` (two overloads), `getConfig(source)`, `getDefaultUserAgent()`, `redrawImageResponse`, `createBitmap`. This is the single highest-value piece of new code in the port. |
+| **JS engine** | QuickJS (`app.cash.quickjs`, Mihon compat) and a headless `WebView` (LNReader) | GraalJS (`org.graalvm.polyglot:js`) on the JVM. Has a real job queue, so the Promise-based LNReader contract works, unlike QuickJS. Needs `TextEncoder`/`TextDecoder` shims, which map cleanly onto `java.nio.charset` (GBK, Big5, Shift_JIS, EUC-KR are all JDK charsets). |
+| **Cloudflare / interactive challenge** | `WebViewExecutor` headless WebView + `AndroidCookieJar` over `android.webkit.CookieManager` | No WebView. Options are JCEF/KCEF (~100 MB, drags a Chromium into the .deb) or no interactive solve at all. See `DECISIONS.md`. Cookie jar becomes a plain persistent OkHttp `CookieJar` on disk. |
+| **Image decoding** | `ImageDecoder` / `BitmapFactory` / `BitmapRegionDecoder`, AVIF via `org.aomedia` native | Skia via Skiko for JPEG/PNG/WebP/GIF. **Region/tiled decoding has no Skia equivalent** and is what SSIV needs for large webtoon strips. AVIF: no JVM decoder ships with Skiko. |
+| **Zoomable/tiled page view** | `subsampling-scale-image-view` (17 files) | Hand-written Compose: `Modifier.graphicsLayer` + `pointerInput` transform gestures, with a downsample-on-load strategy instead of true tiling. |
+| **HTTP image pipeline** | Coil 3.4.0 with 11 custom components | Coil 3 is multiplatform and supports JVM desktop. The custom fetchers/keyers/interceptors port; `MihonImageFetcher` does not (no Mihon). |
+| **Background work** | WorkManager + 7 workers + 12 foreground services | Plain coroutines on a supervisor scope owned by the app, plus a `DesktopScheduler` interface for the periodic ones (tracker, suggestions, backup). No OS-level scheduling in v1. |
+| **Notifications** | `NotificationManager`, 12 services posting progress | `java.awt.SystemTray` / libnotify via `notify-send`, or in-app only. |
+| **DI** | Hilt (Android-only by construction) | Hilt cannot target desktop JVM. Options: plain Dagger 2 (JVM-capable, same annotations, KSP), or manual constructor wiring in a composition root. See `DECISIONS.md`. |
+| **ViewModels** | `androidx.lifecycle` + `@HiltViewModel` x66 | `androidx.lifecycle:lifecycle-viewmodel` publishes KMP artifacts; alternatively a plain `CoroutineScope`-owning class. The 66 VMs are mostly pure logic over flows. |
+| **Navigation** | `AppRouter.kt`, 958 lines of intents and fragment transactions | Rewrite. A sealed `Screen` type + a back stack in Compose state. Nothing to port. |
+| **Resources / i18n** | `res/values-*` x90, `stringResource`, `@StringRes` | Compose Multiplatform resources (`org.jetbrains.compose.components:resources`), which can consume the existing `strings.xml` files. |
+| **Raw SQL queries** | `MangaQueryBuilder` -> `SupportSQLiteQuery`, several `@RawQuery` DAOs | Room KMP drops the `SupportSQLite*` API. Port to `RoomRawQuery`. ~7 call sites. |
+| **`withTransaction`** | `androidx.room.withTransaction` from room-ktx (Android-only artifact) | Room KMP's own transaction API on `RoomDatabase`. 11 call sites. |
+
+## D. Bucket (c): Android-only, not ported
+
+| Feature | Why |
+|---|---|
+| **Mihon / Tachiyomi extension APKs** | Extensions are dex inside APKs, discovered via `PackageManager`, loaded via `ChildFirstPathClassLoader`, signature-verified through Android's `PackageInfo`. A JVM host would need dex2jar at install time *plus* a reimplementation of the Android APIs extensions link against (`Application`, `SharedPreferences`, `Uri`, `Bundle`, preference screens). Drops: `mihon/` (13), `extensions/` (5), `eu/kanade/tachiyomi/` (50), `tachiyomi/` compat, RxJava, Injekt, QuickJS, unifile. |
+| **Shizuku silent install** | Android privileged-service IPC. Meaningless off-device. |
+| **Home screen widgets** | `widget/` (19 files), `AppWidgetProvider`. No analogue. |
+| **App shortcuts** | `core/os/AppShortcutManager`, `ShortcutManager`. |
+| **Google Drive sync** | `play-services-auth` is Android-only. Drive itself has a REST API, so this is *re-implementable*, not impossible, but it is a separate project. Drops `sync/` (10 files) and the `SyncAdapter`/`ContentProvider`. |
+| **Discord Rich Presence (KizzyRPC)** | Android library. Discord IPC over a unix socket is easy on Linux, but it is a different implementation. |
+| **Biometric app lock** | `androidx.biometric`. PIN-only is portable; fingerprint is not. |
+| **Text to speech** | `android.speech.tts`. Linux would need `speech-dispatcher`. |
+| **ACRA crash reporting** | Android-only. Desktop writes a crash log file. |
+| **Screenshot policy, battery optimisation prompts, `RomCompat`, boot receiver, foreground services** | Android platform concepts. |
+| **AVIF page decoding** | `org.aomedia.avif.android` is an Android AAR with native `.so`. No drop-in JVM decoder. AVIF pages fail with a clear error rather than a stub. |
+| **AdapterDelegates, ViewBinding, all 157 XML layouts, 42 activities, 61 fragments, SSIV, Markwon, Material Components** | Android View toolkit. |
+
+## E. Dependency table, `libs.versions.toml` -> desktop
+
+Read off `gradle/libs.versions.toml` at `7310639`. "keep" means the same
+coordinate resolves for a JVM target; "swap" means a different artifact
+in the same family.
+
+| Current | Desktop |
+|---|---|
+| `com.github.YakaTeam:kotatsu-parsers` | **keep** (pure JVM jar). Do **not** re-apply the app's `exclude group: 'org.json'`: Android ships `org.json` in the platform, the JVM does not. |
+| `kotlinx-coroutines-core` | keep |
+| `kotlinx-coroutines-android`, `-guava` | drop `-android`; `-guava` only if Guava stays |
+| `kotlinx-serialization-*` | keep |
+| `okhttp`, `okhttp-brotli`, `-zstd`, `-tls`, `-dnsoverhttps`, `okio` | keep |
+| `org.jsoup:jsoup` | keep |
+| `xmlutil-core` (`core-android`) | **swap** to `core-jvm` |
+| `xmlutil-serialization` | keep |
+| `androidx.room:room-runtime` / `-ktx` / `-compiler` | **swap** to `room-runtime` KMP + `androidx.sqlite:sqlite-bundled`. `room-ktx` is Android-only; its `withTransaction` has a KMP replacement. |
+| `coil3` core/compose/network-okhttp/gif/svg | keep (Coil 3 supports JVM desktop) |
+| `androidx.compose.*` + BOM | **swap** to `org.jetbrains.compose` (CMP). Latest stable on Maven Central is **1.12.0**. |
+| `androidx.compose.material3:1.5.0-alpha28` (Expressive) | **risk.** CMP's material3 tracks a different androidx version. Whether `MotionScheme`, `MaterialShapes`, `ButtonGroup`, wavy progress and the FAB menu are present in the CMP build must be verified before committing to reusing the Compose screens verbatim. Assigned to Phase 1 Agent E. |
+| `androidx.graphics:graphics-shapes` | check for a KMP variant; otherwise reimplement the few shapes used |
+| `androidx.lifecycle:lifecycle-viewmodel` | KMP artifacts exist; `-service`, `-process` are Android-only |
+| `com.google.dagger:hilt-android` + `androidx.hilt:hilt-work` | **drop.** Hilt has no desktop target. |
+| `androidx.work:work-runtime` | drop, replaced by coroutines |
+| `androidx.appcompat`, `core-ktx`, `activity`, `fragment`, `transition`, `constraintlayout`, `recyclerview`, `viewpager2`, `swiperefreshlayout`, `preference`, `documentfile`, `biometric`, `webkit`, `window` | drop |
+| `androidx.collection` | keep (`collection-jvm` exists; the parsers jar already pulls it) |
+| `com.google.android.material:material` | drop |
+| `adapterdelegates4` | drop |
+| `subsampling-scale-image-view` | drop, replace with Compose gesture code |
+| `org.aomedia.avif.android:avif` | drop, no replacement |
+| `com.github.solkin:disk-lru-cache` | check JVM-compat; otherwise a small LRU over `okio.FileSystem` |
+| `io.noties.markwon` | drop (Android `Spanned`). Novel HTML rendering needs a different approach anyway. |
+| `com.github.dead8309:KizzyRPC` | drop |
+| `play-services-auth` | drop |
+| `dev.rikka.shizuku:*` | drop |
+| `com.github.tachiyomiorg:unifile` | drop |
+| `com.github.null2264.injekt` | drop (Mihon compat only) |
+| `com.github.zhanghai.quickjs-java:quickjs-android` | **swap** to GraalJS |
+| `io.reactivex:rxjava` | drop (Mihon compat only) |
+| `com.google.guava:guava` (`-android` flavour) | swap to the JRE flavour if still needed after WorkManager goes |
+| `ch.acra:acra-dialog` | drop |
+| `com.squareup.moshi` (androidTest only) | drop |
+| `desugar_jdk_libs` | drop (JVM 17+ target) |
+
+## F. New dependencies desktop needs
+
+None of these are in the current catalogue. Each is a decision, recorded
+in `DECISIONS.md` before any is added.
+
+| Need | Candidate |
+|---|---|
+| Compose for Desktop runtime + packaging | `org.jetbrains.compose` Gradle plugin 1.12.0 |
+| Desktop SQLite driver | `androidx.sqlite:sqlite-bundled` |
+| JS engine for parser `evaluateJs` | `org.graalvm.polyglot:js` |
+| Logging | `org.slf4j:slf4j-simple`, or none |
+| Cloudflare interactive solve (if taken) | `dev.datlag:kcef` |
+
+## G. Things that will bite
+
+1. **Compose Material 3 Expressive on CMP.** The Android app opts into
+   `ExperimentalMaterial3ExpressiveApi` globally and uses it in the theme
+   itself. If CMP's material3 lacks those APIs, every "portable" Compose
+   screen needs its theme rewritten. Verify first, port second.
+2. **Kotlin 2.3.21 vs CMP 1.12.0.** The app is on a very recent Kotlin.
+   CMP pins a compose-compiler range. If they do not line up, either the
+   desktop module uses a different Kotlin version (not possible inside one
+   build) or the whole project moves Kotlin version (touches the Android
+   gate). This is the first thing to test.
+3. **Room KMP and the 36 migrations.** Migrations use
+   `SupportSQLiteDatabase`. Room KMP migrations use `SQLiteConnection`.
+   All 36 need mechanical conversion, and the desktop app has no existing
+   installs to migrate, so an alternative is to ship desktop at schema
+   version 37 with no migration history at all.
+4. **`org.json`.** The app excludes it because Android provides it. The
+   parsers library uses it at runtime. Desktop must include it.
+5. **`configuration-cache = true` and `parallel = true`** are on in
+   `gradle.properties` and apply to the whole build. A badly-written
+   desktop module will break configuration cache for the Android build
+   too.
+6. **Lint is `warningsAsErrors = true`.** Any shared-module change that
+   introduces a lint warning breaks `:app:assembleDebug`, which is the
+   gate.
