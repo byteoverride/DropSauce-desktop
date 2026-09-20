@@ -4,16 +4,31 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import okio.FileSystem
 import org.koitharu.kotatsu.desktop.image.ImageCache
+import org.koitharu.kotatsu.desktop.library.LibraryRepository
 import org.koitharu.kotatsu.desktop.source.SourceRegistry
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
+import org.koitharu.kotatsu.shared.db.openLibraryDatabase
+import org.koitharu.kotatsu.shared.io.AppPaths
+import org.koitharu.kotatsu.shared.io.XdgAppPaths
 
 /** Where the user is. A plain stack; there is no navigation library on desktop. */
 sealed interface Screen {
 
-	data object Catalog : Screen
+	/** The three top-level destinations, each of which resets the stack. */
+	sealed interface Root : Screen
+
+	data object Library : Root
+
+	data object Catalog : Root
+
+	data object History : Root
 
 	data class Browse(val source: MangaParserSource) : Screen
 
@@ -28,23 +43,33 @@ sealed interface Screen {
 }
 
 /**
- * Application-wide state: the navigation stack and the two long-lived services.
+ * Application-wide state: navigation plus the long-lived services.
  *
  * Held for the process lifetime and passed down explicitly rather than through a
- * CompositionLocal, so that what each screen depends on stays visible in its signature.
+ * CompositionLocal, so each screen's dependencies stay visible in its signature.
  */
-class AppState {
+class AppState(paths: AppPaths = XdgAppPaths()) {
 
 	val sources = SourceRegistry()
 	val images = ImageCache()
 
-	private val backStack = mutableStateListOf<Screen>(Screen.Catalog)
+	/** Survives restarts; this is the app's only durable state. */
+	val library = LibraryRepository(openLibraryDatabase(paths.data / DATABASE_FILE))
 
-	var current: Screen by mutableStateOf(Screen.Catalog)
+	/** For work that outlives a screen, such as recording reading progress. */
+	val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+	private val backStack = mutableStateListOf<Screen>(Screen.Library)
+
+	var current: Screen by mutableStateOf(Screen.Library)
 		private set
 
 	val canGoBack: Boolean
 		get() = backStack.size > 1
+
+	/** The root the current stack was started from, for highlighting the nav rail. */
+	val root: Screen.Root
+		get() = backStack.first() as? Screen.Root ?: Screen.Library
 
 	fun go(screen: Screen) {
 		backStack.add(screen)
@@ -63,4 +88,23 @@ class AppState {
 		backStack[backStack.lastIndex] = screen
 		current = screen
 	}
+
+	/** Switches top-level destination, discarding the stack under it. */
+	fun selectRoot(destination: Screen.Root) {
+		backStack.clear()
+		backStack.add(destination)
+		current = destination
+	}
+
+	private companion object {
+
+		const val DATABASE_FILE = "library.db"
+	}
+}
+
+/** Creates the app's directories, then its state. Fails loudly at startup, not later. */
+fun createAppState(): AppState {
+	val paths = XdgAppPaths()
+	paths.ensureDirectories(FileSystem.SYSTEM)
+	return AppState(paths)
 }

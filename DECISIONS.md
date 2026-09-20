@@ -47,17 +47,23 @@ Android gate is re-run at every commit.
 | Step (D5) | State | Evidence |
 |---|---|---|
 | 1. `:desktop` skeleton + toolchain proof | **done** (`ffda5a4`) | `:app:assembleDebug` 2m31s; `:shared:build` 6 tests 0 failures; `:desktop:run` held a window 90s under XWayland; `:desktop:packageDeb` produced `dropsauce_0.9.6_amd64.deb`, 54 MB, 106 files under `lib/runtime/`, no JVM in `Depends:` |
-| 2. In-place decoupling refactors | **in progress** | |
+| 2. In-place decoupling refactors | **partly done**, deprioritised at the user's direction in favour of shipping working screens | |
 | 2a. `printStackTraceDebug` off the debug/release source sets | **done** (`e26e9be`) | 206 call sites across 87 files, zero edited; both old declarations deleted so a green build proves resolution comes from `:shared`; dexdump finds `DebugFlags` in the APK |
 | 2b. `BuildConfig` out of move-bound files | todo | |
 | 2c. invert `domain` -> `ui` in `list/domain` | todo | |
 | 2d. strip `@StringRes`/`@DrawableRes` off domain enums | todo | |
 | 2e. split the mixed `core/util/ext` files | todo | |
 | 3. `:shared` models, enums, decoupled domain | todo | |
-| 4. Room layer into `:shared` | todo | |
-| 5. Desktop platform implementations | todo | |
-| 6. Desktop UI | todo | |
-| 7. Packaging | partly proven at step 1 | |
+| 4. Room layer into `:shared` | **done** (`21f0d08`, `98dd541`) | 16 shared tests; re-entrancy harness with a positive control; history survives reopening the database |
+| 5. Desktop platform implementations | **done** for the parser host and images (`742fae2`, `990a9b5`) | 1270 sources instantiate; live `getList`/`getDetails`/`getPages` |
+| 6. Desktop UI | **browse, search, details, reader, library, categories, history done** | driven through the real UI and screenshotted at each step |
+| 7. Packaging | **done and installed** | `dropsauce_0.9.6_amd64.deb`, installed to `/opt/dropsauce`, runs on its bundled JRE |
+
+**Working end to end as of the library commit:** nav rail (Library /
+Sources / History), 890 usable sources, per-source browse and search,
+details with chapters, a reader with paged LTR/RTL and webtoon, saving a
+title into a category, and category create/rename/delete. Verified by
+driving the real app, not by inspection.
 
 **Contracts defined so far** (mine alone, per the subagent rules):
 `AppPaths` (`shared/.../shared/io/AppPaths.kt`, okio `Path`, replaces

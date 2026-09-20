@@ -28,6 +28,7 @@ dependencies {
 	// org.json: Android ships it in the platform, the JVM does not. See DECISIONS.md D1.
 	implementation("com.github.YakaTeam:kotatsu-parsers:${libs.versions.parsers.get()}")
 
+	implementation(libs.androidx.sqlite.bundled)
 	implementation(libs.okhttp)
 	implementation(libs.okio)
 

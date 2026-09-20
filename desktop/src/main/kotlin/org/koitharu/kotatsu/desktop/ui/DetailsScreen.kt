@@ -12,21 +12,29 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
@@ -51,6 +59,9 @@ fun DetailsScreen(
 	var loading by remember(seed.id) { mutableStateOf(true) }
 	var error: String? by remember(seed.id) { mutableStateOf(null) }
 	var attempt by remember(seed.id) { mutableStateOf(0) }
+	var choosingCategories by remember(seed.id) { mutableStateOf(false) }
+	val savedIn by remember(seed.id) { state.library.observeCategoriesOf(seed) }
+		.collectAsState(emptySet())
 
 	LaunchedEffect(seed.id, attempt) {
 		loading = true
@@ -61,6 +72,15 @@ fun DetailsScreen(
 		loading = false
 	}
 
+	if (choosingCategories) {
+		CategoryPickerDialog(
+			state = state,
+			manga = manga,
+			savedIn = savedIn,
+			onDismiss = { choosingCategories = false },
+		)
+	}
+
 	val chapters = manga.chapters.orEmpty()
 	Column(Modifier.fillMaxSize()) {
 		TopBar(
@@ -68,8 +88,13 @@ fun DetailsScreen(
 			subtitle = source.title,
 			onBack = onBack,
 			trailing = {
-				if (chapters.isNotEmpty()) {
-					Button(onClick = { onRead(chapters, 0) }) { Text("Read") }
+				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+					OutlinedButton(onClick = { choosingCategories = true }) {
+						Text(if (savedIn.isEmpty()) "Add to library" else "In library (${savedIn.size})")
+					}
+					if (chapters.isNotEmpty()) {
+						Button(onClick = { onRead(chapters, 0) }) { Text("Read") }
+					}
 				}
 			},
 		)
@@ -111,6 +136,79 @@ fun DetailsScreen(
 				}
 			}
 		}
+	}
+}
+
+/**
+ * Category picker.
+ *
+ * A title can sit in several categories at once, matching the Android app, so this is a
+ * set of toggles rather than a single choice. Creating a category from here matters:
+ * a fresh install has only the seeded one, and being sent to another screen to make a
+ * second would break the flow of filing something away.
+ */
+@Composable
+private fun CategoryPickerDialog(
+	state: AppState,
+	manga: Manga,
+	savedIn: Set<Long>,
+	onDismiss: () -> Unit,
+) {
+	val scope = rememberCoroutineScope()
+	val categories by state.library.observeCategories().collectAsState(emptyList())
+	var creating by remember { mutableStateOf(false) }
+
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text("Save to") },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+				if (categories.isEmpty()) {
+					Text(
+						"No categories yet.",
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+				for (category in categories) {
+					val checked = category.categoryId in savedIn
+					Row(
+						modifier = Modifier
+							.fillMaxWidth()
+							.clickable {
+								scope.launch {
+									state.library.setFavourite(manga, category.categoryId, !checked)
+								}
+							}
+							.padding(vertical = 6.dp),
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.spacedBy(8.dp),
+					) {
+						Checkbox(checked = checked, onCheckedChange = null)
+						Text(category.title, style = MaterialTheme.typography.bodyLarge)
+					}
+				}
+				TextButton(onClick = { creating = true }) { Text("New category") }
+			}
+		},
+		confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+	)
+
+	if (creating) {
+		CategoryNameDialog(
+			title = "New category",
+			initial = "",
+			confirm = "Create",
+			onDismiss = { creating = false },
+			onConfirm = { name ->
+				scope.launch {
+					// Put the title straight into the category that was just made for it.
+					val id = state.library.createCategory(name)
+					state.library.setFavourite(manga, id, true)
+				}
+				creating = false
+			},
+		)
 	}
 }
 

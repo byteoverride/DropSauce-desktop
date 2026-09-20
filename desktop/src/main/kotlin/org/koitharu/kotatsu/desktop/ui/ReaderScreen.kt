@@ -39,6 +39,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
@@ -96,6 +97,23 @@ fun ReaderScreen(
 		when {
 			index > 0 -> index--
 			chapterIndex > 0 -> onChapterChange(chapterIndex - 1)
+		}
+	}
+
+	// Record progress whenever the page or chapter changes. Runs on the app scope rather
+	// than the composition's, so leaving the reader mid-write does not cancel it.
+	LaunchedEffect(chapter.id, index, pages.size) {
+		if (pages.isEmpty()) return@LaunchedEffect
+		val chapterProgress = (index + 1).toFloat() / pages.size
+		val percent = ((chapterIndex + chapterProgress) / chapters.size).coerceIn(0f, 1f)
+		state.scope.launch {
+			state.library.recordProgress(
+				manga = manga,
+				chapterId = chapter.id,
+				page = index,
+				chaptersCount = chapters.size,
+				percent = percent,
+			)
 		}
 	}
 
