@@ -21,7 +21,18 @@ import java.util.concurrent.ConcurrentHashMap
  * several sources serve reading fine while 403ing their cover CDN for a client that did
  * not send the source's headers. Recorded as D19.
  */
-class ImageCache(private val maxEntries: Int = 300) {
+class ImageCache(maxEntries: Int = 300) {
+
+	/**
+	 * Capacity, adjustable at runtime so the settings control takes effect immediately
+	 * rather than at next launch, which the setting's description would otherwise have
+	 * to admit to.
+	 */
+	@Volatile
+	var maxEntries: Int = maxEntries
+		set(value) {
+			field = value.coerceAtLeast(1)
+		}
 
 	private val entries: MutableMap<String, ImageBitmap> = Collections.synchronizedMap(
 		object : LinkedHashMap<String, ImageBitmap>(64, 0.75f, true) {

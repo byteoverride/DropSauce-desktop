@@ -23,7 +23,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import org.koitharu.kotatsu.desktop.source.SourceRegistry
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 
 /**
@@ -34,9 +33,13 @@ import org.koitharu.kotatsu.parsers.model.MangaParserSource
  * simply fails.
  */
 @Composable
-fun CatalogScreen(onPick: (MangaParserSource) -> Unit) {
+fun CatalogScreen(
+	sources: List<MangaParserSource>,
+	totalUsable: Int,
+	onPick: (MangaParserSource) -> Unit,
+) {
 	var query by remember { mutableStateOf("") }
-	val all = remember { SourceRegistry.usableSources }
+	val all = sources
 	val filtered = remember(query) {
 		if (query.isBlank()) {
 			all
@@ -48,7 +51,12 @@ fun CatalogScreen(onPick: (MangaParserSource) -> Unit) {
 	Column(Modifier.fillMaxSize()) {
 		TopBar(
 			title = "Sources",
-			subtitle = "${filtered.size} of ${all.size} available",
+			subtitle = if (all.size < totalUsable) {
+				// Say so, rather than letting the adult filter look like missing sources.
+				"${filtered.size} of ${all.size} shown, $totalUsable available"
+			} else {
+				"${filtered.size} of ${all.size} available"
+			},
 		)
 		OutlinedTextField(
 			value = query,

@@ -1,0 +1,71 @@
+package org.koitharu.kotatsu.shared.settings
+
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+/** How the app picks between light and dark. */
+enum class ThemeMode { System, Light, Dark }
+
+/** Default reading direction for newly opened chapters. */
+enum class ReadingMode { PagedLtr, PagedRtl, Webtoon }
+
+/**
+ * Everything the desktop app remembers between runs, other than the library.
+ *
+ * Deliberately a small, flat, explicitly-defaulted record rather than a port of the
+ * Android `AppSettings`, which is 1501 lines and 205 keys (DECISIONS.md D8). Every field
+ * here is one the desktop UI actually reads; adding a key that nothing consumes is how
+ * that god object grew.
+ *
+ * Defaults are on the properties so an older config file missing a key still loads.
+ */
+@Serializable
+data class SettingsData(
+	/** Dark by default: this is a reader, and it is what the user asked for. */
+	@SerialName("theme") val theme: ThemeMode = ThemeMode.Dark,
+	@SerialName("reading_mode") val readingMode: ReadingMode = ReadingMode.PagedLtr,
+	/**
+	 * Hide adult sources from the catalogue.
+	 *
+	 * On by default. A large share of the 890 usable sources are adult, and a reader
+	 * opened for the first time should not lead with them.
+	 */
+	@SerialName("hide_adult_sources") val hideAdultSources: Boolean = true,
+	/** Sources whose names contain this are also hidden, for anything else unwanted. */
+	@SerialName("hidden_source_terms") val hiddenSourceTerms: List<String> = emptyList(),
+	/** Covers and pages held in memory. Higher is smoother and uses more RAM. */
+	@SerialName("image_cache_entries") val imageCacheEntries: Int = 300,
+	/** How many times to re-request a page image before giving up on it. */
+	@SerialName("page_attempts") val pageAttempts: Int = 3,
+	@SerialName("user_agent") val userAgent: String = DEFAULT_USER_AGENT,
+) {
+
+	companion object {
+
+		/**
+		 * A current desktop Firefox string. Sources fingerprint the UA, and the parsers
+		 * library's own defaults lean mobile, which some sources answer with a different
+		 * layout than the parser expects.
+		 */
+		const val DEFAULT_USER_AGENT =
+			"Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+	}
+}
+
+/**
+ * Reads and writes [SettingsData].
+ *
+ * An interface so shared code never touches a file path or a platform preference API
+ * (DECISIONS.md D9). [data] is hot: the UI collects it and updates apply immediately.
+ */
+interface SettingsStore {
+
+	val data: StateFlow<SettingsData>
+
+	/** Applies [transform] to the current value and persists the result. */
+	suspend fun update(transform: (SettingsData) -> SettingsData)
+
+	/** Restores every field to its default. */
+	suspend fun reset() = update { SettingsData() }
+}

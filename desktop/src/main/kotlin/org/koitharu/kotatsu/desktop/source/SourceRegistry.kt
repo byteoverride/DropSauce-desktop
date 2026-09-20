@@ -5,6 +5,7 @@ import org.koitharu.kotatsu.desktop.parser.DefaultSourceConfig
 import org.koitharu.kotatsu.desktop.parser.DesktopParsers
 import org.koitharu.kotatsu.desktop.parser.InMemoryCookieJar
 import org.koitharu.kotatsu.desktop.parser.ParserSession
+import org.koitharu.kotatsu.parsers.model.ContentType
 import org.koitharu.kotatsu.parsers.model.MangaPage
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import java.util.concurrent.ConcurrentHashMap
@@ -16,7 +17,7 @@ import java.util.concurrent.TimeUnit
  * Sessions are created on demand and kept, because building a parser is not free and the
  * browse screen goes back and forth between sources.
  */
-class SourceRegistry {
+class SourceRegistry(private val userAgentProvider: () -> String = { USER_AGENT }) {
 
 	private val cookieJar = InMemoryCookieJar()
 
@@ -35,9 +36,19 @@ class SourceRegistry {
 			source = source,
 			httpClient = baseClient,
 			cookieJar = cookieJar,
-			userAgent = USER_AGENT,
+			userAgent = userAgentProvider(),
 			configProvider = { DefaultSourceConfig() },
 		)
+	}
+
+	/**
+	 * Drops every live parser, so the next use rebuilds with current settings.
+	 *
+	 * Needed because the User-Agent is baked into a session's client when it is created;
+	 * changing it in settings would otherwise do nothing until restart.
+	 */
+	fun reset() {
+		sessions.clear()
 	}
 
 	/**
@@ -71,5 +82,8 @@ class SourceRegistry {
 				.filterNot { it.isBroken }
 				.sortedBy { it.title.lowercase() }
 		}
+
+		/** Sources a first-time reader should not be led with. */
+		fun MangaParserSource.isAdult(): Boolean = contentType == ContentType.HENTAI
 	}
 }

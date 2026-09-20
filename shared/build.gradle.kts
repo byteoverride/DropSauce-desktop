@@ -7,6 +7,7 @@ plugins {
 	alias(libs.plugins.android.kotlin.multiplatform.library)
 	alias(libs.plugins.ksp)
 	alias(libs.plugins.room)
+	alias(libs.plugins.kotlinx.serialization)
 }
 
 kotlin {
@@ -37,6 +38,7 @@ kotlin {
 			api(libs.okio)
 			api(libs.androidx.room.runtime)
 			implementation(libs.androidx.sqlite.bundled)
+			implementation(libs.kotlinx.serialization.json)
 		}
 		getByName("commonTest").dependencies {
 			implementation(kotlin("test"))

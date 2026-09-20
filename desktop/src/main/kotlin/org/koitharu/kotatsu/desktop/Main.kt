@@ -5,7 +5,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialExpressiveTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
@@ -14,6 +17,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.Window
@@ -27,7 +32,9 @@ import org.koitharu.kotatsu.desktop.ui.CatalogScreen
 import org.koitharu.kotatsu.desktop.ui.DetailsScreen
 import org.koitharu.kotatsu.desktop.ui.HistoryScreen
 import org.koitharu.kotatsu.desktop.ui.LibraryScreen
+import org.koitharu.kotatsu.desktop.ui.SettingsScreen
 import org.koitharu.kotatsu.desktop.ui.createAppState
+import org.koitharu.kotatsu.shared.settings.ThemeMode
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.desktop.ui.ReaderScreen
@@ -52,7 +59,16 @@ private fun launchUi() = application {
 		// Expressive entry points :app uses in settings/compose/SettingsTheme.kt. They
 		// resolve only because of the material3 pin in gradle/libs.versions.toml, so this
 		// failing to compile is the signal that DECISIONS.md D6a has regressed.
-		MaterialExpressiveTheme(motionScheme = MotionScheme.expressive()) {
+		val settings by state.settings.data.collectAsState()
+		val dark = when (settings.theme) {
+			ThemeMode.System -> isSystemInDarkTheme()
+			ThemeMode.Light -> false
+			ThemeMode.Dark -> true
+		}
+		MaterialExpressiveTheme(
+			colorScheme = if (dark) darkColorScheme() else lightColorScheme(),
+			motionScheme = MotionScheme.expressive(),
+		) {
 			Surface(modifier = Modifier.fillMaxSize()) {
 				Row(Modifier.fillMaxSize()) {
 					NavRail(state)
@@ -87,6 +103,7 @@ private val ROOTS: List<Pair<Screen.Root, Pair<String, String>>> = listOf(
 	Screen.Library to ("\u2605" to "Library"),
 	Screen.Catalog to ("\u25A6" to "Sources"),
 	Screen.History to ("\u21BA" to "History"),
+	Screen.Settings to ("\u2699" to "Settings"),
 )
 
 @Composable
@@ -99,7 +116,13 @@ private fun Router(state: AppState) {
 
 		Screen.History -> HistoryScreen(state = state, onOpen = openDetails)
 
-		Screen.Catalog -> CatalogScreen(onPick = { state.go(Screen.Browse(it)) })
+		Screen.Catalog -> CatalogScreen(
+			sources = state.visibleSources,
+			totalUsable = state.usableSourceCount,
+			onPick = { state.go(Screen.Browse(it)) },
+		)
+
+		Screen.Settings -> SettingsScreen(state)
 
 		is Screen.Browse -> BrowseScreen(
 			state = state,

@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okio.FileSystem
 import org.koitharu.kotatsu.desktop.image.ImageCache
 import org.koitharu.kotatsu.desktop.library.LibraryRepository
@@ -16,6 +17,8 @@ import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.shared.db.openLibraryDatabase
 import org.koitharu.kotatsu.shared.io.AppPaths
+import org.koitharu.kotatsu.shared.settings.JsonSettingsStore
+import org.koitharu.kotatsu.shared.settings.SettingsStore
 import org.koitharu.kotatsu.shared.io.XdgAppPaths
 
 /** Where the user is. A plain stack; there is no navigation library on desktop. */
@@ -29,6 +32,8 @@ sealed interface Screen {
 	data object Catalog : Root
 
 	data object History : Root
+
+	data object Settings : Root
 
 	data class Browse(val source: MangaParserSource) : Screen
 
@@ -50,10 +55,24 @@ sealed interface Screen {
  * Held for the process lifetime and passed down explicitly rather than through a
  * CompositionLocal, so each screen's dependencies stay visible in its signature.
  */
-class AppState(paths: AppPaths = XdgAppPaths()) {
+class AppState(val paths: AppPaths = XdgAppPaths()) {
 
-	val sources = SourceRegistry()
-	val images = ImageCache()
+	val settings: SettingsStore = JsonSettingsStore(paths.config / SETTINGS_FILE)
+
+	/** The User-Agent is read per session, so changing it applies after [SourceRegistry.reset]. */
+	val sources = SourceRegistry { settings.data.value.userAgent }
+
+	val images = ImageCache(settings.data.value.imageCacheEntries)
+
+	/** Sources the catalogue can offer, after the adult filter in settings. */
+	val visibleSources: List<MangaParserSource>
+		get() = if (settings.data.value.hideAdultSources) {
+			SourceRegistry.usableSources.filterNot { with(SourceRegistry) { it.isAdult() } }
+		} else {
+			SourceRegistry.usableSources
+		}
+
+	val usableSourceCount: Int get() = SourceRegistry.usableSources.size
 
 	/** Survives restarts; this is the app's only durable state. */
 	val library = LibraryRepository(openLibraryDatabase(paths.data / DATABASE_FILE))
@@ -98,9 +117,24 @@ class AppState(paths: AppPaths = XdgAppPaths()) {
 		current = destination
 	}
 
+	init {
+		// Settings that other components cache have to be pushed when they change.
+		scope.launch {
+			var previousUserAgent = settings.data.value.userAgent
+			settings.data.collect { value ->
+				images.maxEntries = value.imageCacheEntries
+				if (value.userAgent != previousUserAgent) {
+					previousUserAgent = value.userAgent
+					sources.reset()
+				}
+			}
+		}
+	}
+
 	private companion object {
 
 		const val DATABASE_FILE = "library.db"
+		const val SETTINGS_FILE = "settings.json"
 	}
 }
 
