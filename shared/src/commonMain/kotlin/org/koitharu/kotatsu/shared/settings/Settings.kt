@@ -26,6 +26,16 @@ data class SettingsData(
 	@SerialName("theme") val theme: ThemeMode = ThemeMode.Dark,
 	@SerialName("reading_mode") val readingMode: ReadingMode = ReadingMode.PagedLtr,
 	/**
+	 * Multiplier applied to the whole interface: text, icons, spacing, everything.
+	 *
+	 * Defaults above 1 because Compose for Desktop takes its density from the toolkit,
+	 * and on a high resolution Linux display that commonly reports 1.0 regardless of the
+	 * physical pixel density. The result is a correct layout rendered far too small. This
+	 * is a user-facing control rather than a detected value because no reliable signal
+	 * distinguishes "large display" from "high density display" on X11.
+	 */
+	@SerialName("ui_scale") val uiScale: Float = 1.5f,
+	/**
 	 * Hide adult sources from the catalogue.
 	 *
 	 * On by default. A large share of the 890 usable sources are adult, and a reader

@@ -17,10 +17,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.unit.dp
@@ -70,6 +73,11 @@ private fun launchUi() = application {
 			ThemeMode.Light -> false
 			ThemeMode.Dark -> true
 		}
+		// Scaling density rather than font size alone, so icons, padding and touch
+		// targets grow with the text instead of text outgrowing its containers.
+		val base = LocalDensity.current
+		val scaled = Density(base.density * settings.uiScale, base.fontScale)
+		CompositionLocalProvider(LocalDensity provides scaled) {
 		MaterialExpressiveTheme(
 			colorScheme = if (dark) darkColorScheme() else lightColorScheme(),
 			motionScheme = MotionScheme.expressive(),
@@ -81,6 +89,7 @@ private fun launchUi() = application {
 					Box(Modifier.weight(1f)) { Router(state) }
 				}
 			}
+		}
 		}
 	}
 }

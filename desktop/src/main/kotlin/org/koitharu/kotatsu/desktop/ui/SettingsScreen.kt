@@ -63,6 +63,10 @@ fun SettingsScreen(state: AppState) {
 			verticalArrangement = Arrangement.spacedBy(20.dp),
 		) {
 			Section("Appearance") {
+				ScaleRow(
+					current = settings.uiScale,
+					onSelect = { value -> edit { it.copy(uiScale = value) } },
+				)
 				ChoiceRow(
 					label = "Theme",
 					options = ThemeMode.entries,
@@ -140,6 +144,36 @@ fun SettingsScreen(state: AppState) {
 		}
 	}
 }
+
+/**
+ * Interface scale.
+ *
+ * Its own control rather than a [ChoiceRow] because the options are numbers with a
+ * meaning, and because this is the one setting a user reaches for when they cannot
+ * comfortably read the rest of the settings screen.
+ */
+@Composable
+private fun ScaleRow(current: Float, onSelect: (Float) -> Unit) {
+	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+		Text("Interface size", style = MaterialTheme.typography.bodyLarge)
+		Text(
+			"Scales text, icons and spacing together. Applies immediately.",
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+			for (value in UI_SCALES) {
+				FilterChip(
+					selected = kotlin.math.abs(value - current) < 0.01f,
+					onClick = { onSelect(value) },
+					label = { Text("${(value * 100).toInt()}%") },
+				)
+			}
+		}
+	}
+}
+
+private val UI_SCALES = listOf(1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f)
 
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
