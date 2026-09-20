@@ -18,10 +18,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import okio.FileSystem
+import org.koitharu.kotatsu.core.util.ext.DebugFlags
 import org.koitharu.kotatsu.shared.io.AppPaths
 import org.koitharu.kotatsu.shared.io.XdgAppPaths
 
-fun main() = application {
+fun main() {
+	// Counterpart of BaseApp setting this from BuildConfig.DEBUG on Android.
+	DebugFlags.isDebug = System.getProperty("dropsauce.debug").toBoolean()
+	launchUi()
+}
+
+private fun launchUi() = application {
 	val paths = remember { XdgAppPaths() }
 	Window(
 		onCloseRequest = ::exitApplication,

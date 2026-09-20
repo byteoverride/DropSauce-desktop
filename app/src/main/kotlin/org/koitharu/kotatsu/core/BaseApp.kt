@@ -27,6 +27,7 @@ import org.koitharu.kotatsu.core.os.RomCompat
 import org.koitharu.kotatsu.settings.sources.catalog.EXTENSION_APK_PREFIX
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.ui.dialog.CrashDialogActivity
+import org.koitharu.kotatsu.core.util.ext.DebugFlags
 import org.koitharu.kotatsu.core.util.ext.processLifecycleScope
 import org.koitharu.kotatsu.local.data.LocalStorageChanges
 import org.koitharu.kotatsu.local.data.index.LocalMangaIndex
@@ -80,6 +81,10 @@ open class BaseApp : Application(), Configuration.Provider {
 
 	override fun onCreate() {
 		super.onCreate()
+		// Replaces the old debug/release source-set split of printStackTraceDebug, which a
+		// multiplatform target cannot express. Set before the ACRA early return below, so the
+		// sender process gets it too.
+		DebugFlags.isDebug = BuildConfig.DEBUG
 		PlatformRegistry.applicationContext = this // TODO replace with OkHttp.initialize
 		if (ACRA.isACRASenderServiceProcess()) {
 			return

@@ -159,6 +159,8 @@ kotlin {
 }
 
 dependencies {
+	implementation project(':shared')
+
 	//noinspection UseTomlInstead
 	implementation("com.github.YakaTeam:kotatsu-parsers:${libs.versions.parsers.get()}") {
 		exclude group: 'org.json', module: 'json'
