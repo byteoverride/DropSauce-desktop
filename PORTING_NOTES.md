@@ -8,14 +8,32 @@ Counts are file counts in `app/src/main/kotlin` unless stated otherwise.
 
 ## A. How coupled is the code, really
 
-| Slice | Files | Files with no `android.*` / `androidx.*` / `com.google.android.*` import |
-|---|---|---|
-| all of `main` | 1145 | 298 (26%) |
-| every `data/` + `domain/` dir | 182 | 89 (49%) |
-| every `ui/` dir | 499 | 73 (15%) |
+**These numbers were wrong in the Phase 0 draft and are corrected here.**
+The original grep looked only for `android.*` / `androidx.*` /
+`com.google.android.*`, which misses three forms of Android coupling that
+Phase 1 Agent D found are more common in `domain/` code than any of them:
 
-26% sounds bad and is misleading. The imports that dominate `data/` and
-`domain/` are shallow:
+- `import org.koitharu.kotatsu.R` (356 files in `main`). Domain enums such
+  as `ListSortOrder`, `ListFilterOption` and `SourcesSortOrder` carry
+  `@StringRes`/`@DrawableRes` Ints and are read by the library DAOs.
+- `BuildConfig`, which does not exist in a KMP `jvm()` source set.
+  `local/data/MangaIndex.kt:70-71` writes it into every `index.json`.
+- `printStackTraceDebug`, used by **87 files** and declared *only* in
+  `src/debug/.../Debug.kt:5` and `src/release/.../Debug.kt:6` (the release
+  one compiles to `Unit`). Neither source set exists in a KMP target, so
+  87 files fail to resolve it on a move. No import scan catches this
+  because it is resolved by source set, not by import.
+
+Counting all six signals:
+
+| Slice | Files | Genuinely free of Android coupling |
+|---|---|---|
+| all of `main` | 1145 | **270** (24%) |
+| every `data/` + `domain/` dir | 182 | **72** (40%, not the 49% first reported) |
+| every `ui/` dir | 500 | **64** (13%) |
+
+24% sounds bad and is misleading. The `android.*` imports that dominate
+`data/` and `domain/` are shallow:
 
 ```
 26 android.content.Context      11 androidx.room.withTransaction
@@ -51,7 +69,7 @@ Runs on desktop JVM with no change beyond a source-set move.
 | Room entities, DAOs, migrations | `core/db`, `*/data` | Room 2.8.4 publishes `room-runtime-jvm`. Annotations are unchanged. Exceptions in bucket (b). |
 | Enum/value prefs types | `core/prefs/*.kt` except `AppSettings`/`SourceSettings` | `ColorScheme`, `ListMode`, `ReaderMode`, `NetworkPolicy`, `TriStateOption`, ... plain enums |
 | Domain use cases and mappers | `*/domain` | the android-free half of the 182 |
-| `core/util/*` non-ext helpers | `core/util` | `FileSize`, `MimeTypes`, `iterator/`, `progress/` |
+| `core/util/*` non-ext helpers | `core/util` | **Only `iterator/`.** The Phase 0 draft also listed `FileSize`, `MimeTypes` and `progress/` here and all three were wrong: `FileSize.kt:3` imports `Context` (and `R`), `MimeTypes.kt:4` imports `android.webkit.MimeTypeMap`, and 3 of the 6 files in `progress/` are Android. |
 | Interceptors without Android types | `core/network` | `RateLimitInterceptor`, `GZipInterceptor`, `CommonHeaders*`, `CacheLimitInterceptor`, `DoHProvider`, `imageproxy/*` |
 | Backup model/serialisation | `backup/` | the zip+json format itself; the file picking is not |
 | Scrobbling API clients | `scrobbling/*/data` | 31 of 56 scrobbling files are already android-free |
@@ -137,7 +155,7 @@ in the same family.
 | `adapterdelegates4` | drop |
 | `subsampling-scale-image-view` | drop, replace with Compose gesture code |
 | `org.aomedia.avif.android:avif` | drop, no replacement |
-| `com.github.solkin:disk-lru-cache` | check JVM-compat; otherwise a small LRU over `okio.FileSystem` |
+| `com.github.solkin:disk-lru-cache` | publishes **AAR variants only**, so a JVM target cannot resolve it, but its `classes.jar` bytecode contains **zero** `android/*` references (checked against a positive control that does find `java/io/File`). Pure JVM code in Android packaging: vendor the ten classes, or replace with an okio LRU. |
 | `io.noties.markwon` | drop (Android `Spanned`). **Not** novel rendering: its only consumers are `settings/about/AppUpdateActivity.kt` and the changelog screen. The novel reader uses `HtmlCompat.fromHtml` + Jsoup + `StaticLayout`. |
 | `com.github.dead8309:KizzyRPC` | drop |
 | `play-services-auth` | drop |
@@ -163,6 +181,21 @@ in `DECISIONS.md` before any is added.
 | JS engine for parser `evaluateJs` | `org.graalvm.polyglot:js` |
 | Logging | `org.slf4j:slf4j-simple`, or none |
 | Cloudflare interactive solve (if taken) | `dev.datlag:kcef` |
+
+## G-0. The dependency arrow points the wrong way
+
+Phase 1 Agent D's most structural finding, and it invalidates any naive
+"shared domain first" sequencing: **`domain` depends on `ui`, not the
+reverse.** `list/domain/MangaListMapper.kt:16-23` imports
+`core/ui/model/MangaOverride`, `core/ui/widgets/ChipsView` and four
+`list/ui/model/*` types; `list/domain/MangaListQuickFilter.kt:9-10` does
+the same. `ListFilterOption` carries drawable ids.
+
+So `list/ui/` (56 files) is on the critical path for moving `list/domain`,
+and `DECISIONS.md` D5 step 2 ("`:shared` with models, enums, pure domain")
+cannot execute as written until those mappers are inverted. The fix is
+refactoring **inside** `:app` first, which is cheap to gate: every step is
+an ordinary Android change verified by `:app:assembleDebug`.
 
 ## G. Things that will bite
 

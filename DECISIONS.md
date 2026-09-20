@@ -126,16 +126,36 @@ with a green gate in between. Rejected alternatives: full in-place KMP
 conversion of `:app` (too risky for the gate); a standalone `:desktop`
 that shares nothing (shares nothing, which is the point of the mission).
 
-### D5. Migration order is skeleton, then database, then domain, then UI
+### D5. Migration order: skeleton, decouple in place, database, domain, UI
+
+**Revised after Phase 1 Agent D. The original step 2 ("`:shared` with
+models, enums, pure domain") cannot execute as written.**
 
 1. `:desktop` skeleton + toolchain proof (D6) - Android gate must stay green
-2. `:shared` with models, enums, pure domain - gate
-3. **Room layer into `:shared`** - gate. Deliberately early because it is
-   the highest-risk move; failing at step 3 is cheap, failing at step 8 is not.
-4. Desktop platform implementations (paths, settings, http, parser host,
+2. **Decoupling refactors performed entirely inside `:app`**, before any
+   module move. Each is an ordinary Android change gated by
+   `:app:assembleDebug`. This is where most of the work actually is:
+   - kill `printStackTraceDebug` (87 files, resolved by source set, so it
+     silently fails to compile the moment anything moves)
+   - remove `BuildConfig` from `local/data/MangaIndex.kt` and three others
+   - invert the `domain` -> `ui` dependency in `list/domain`
+     (`MangaListMapper`, `MangaListQuickFilter`) so domain stops importing
+     `list/ui/model` and `ChipsView`
+   - strip `@StringRes`/`@DrawableRes` Ints off the domain enums
+     (`ListSortOrder`, `ListFilterOption`, `SourcesSortOrder`)
+   - split the mixed `core/util/ext` files
+3. `:shared` with models, enums and the now-decoupled domain - gate
+4. **Room layer into `:shared`** - gate. Still deliberately early because
+   it is the highest-risk move.
+5. Desktop platform implementations (paths, settings, http, parser host,
    JS, image decode)
-5. Desktop UI
-6. Packaging
+6. Desktop UI
+7. Packaging
+
+**Why:** `domain` currently depends on `ui`. Moving domain first would
+drag `list/ui/` (56 files) into `:shared` with it, or fail. Doing the
+decoupling as plain Android refactors first keeps every step verifiable
+against the existing gate and leaves a smaller, cleaner thing to move.
 
 ### D6. The toolchain compatibility question is settled before anything else
 
@@ -391,6 +411,10 @@ question is settled (D1/D2/D3) and the toolchain question is not.
 No two agents share a directory. `MangaRepository.kt`, the `:shared`
 module skeleton and all interface contracts are mine to write before any
 Phase 2 agent starts.
+
+**Gap found during Phase 1:** `list/ui/` (56 files) was assigned to no
+agent, and Agent D's dependency-inversion finding puts it on the critical
+path for step 2 above. It needs covering before Phase 2 planning closes.
 
 ---
 
