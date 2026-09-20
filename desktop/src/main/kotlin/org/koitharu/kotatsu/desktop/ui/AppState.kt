@@ -10,6 +10,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import okio.FileSystem
 import org.koitharu.kotatsu.desktop.image.ImageCache
+import org.koitharu.kotatsu.desktop.feature.Feature
+import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.library.LibraryRepository
 import org.koitharu.kotatsu.desktop.source.SourceRegistry
 import org.koitharu.kotatsu.parsers.model.Manga
@@ -34,6 +36,14 @@ sealed interface Screen {
 	data object History : Root
 
 	data object Settings : Root
+
+	/**
+	 * A screen contributed by a feature area, addressed by [Feature.id].
+	 *
+	 * Feature areas are built independently, so the shell cannot name them one by one in
+	 * a `when` without becoming the thing every area has to edit.
+	 */
+	data class FeatureRoot(val id: String) : Root
 
 	data class Browse(val source: MangaParserSource) : Screen
 
@@ -74,8 +84,21 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 
 	val usableSourceCount: Int get() = SourceRegistry.usableSources.size
 
+	/**
+	 * Feature areas contributed to the shell.
+	 *
+	 * Empty until an area is integrated. Adding one is a single entry here, which is the
+	 * point: no area edits navigation, and integrating a batch cannot produce a merge
+	 * conflict in a shared `when` block.
+	 */
+	val features: List<Feature> = emptyList()
+
+	fun feature(id: String): Feature? = features.firstOrNull { it.id == id }
+
 	/** Survives restarts; this is the app's only durable state. */
-	val library = LibraryRepository(openLibraryDatabase(paths.data / DATABASE_FILE))
+	private val database = openLibraryDatabase(paths.data / DATABASE_FILE)
+
+	val library = LibraryRepository(database)
 
 	/** For work that outlives a screen, such as recording reading progress. */
 	val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -111,6 +134,18 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 	}
 
 	/** Switches top-level destination, discarding the stack under it. */
+	/** [FeatureContext] implementation handed to every feature area. */
+	val featureContext: FeatureContext = object : FeatureContext {
+		override val db get() = database
+		override val sources get() = this@AppState.sources
+		override val images get() = this@AppState.images
+		override val settings get() = this@AppState.settings
+		override val paths get() = this@AppState.paths
+		override val library get() = this@AppState.library
+		override val scope get() = this@AppState.scope
+		override fun clientFor(source: MangaParserSource) = this@AppState.sources.session(source).client
+	}
+
 	fun selectRoot(destination: Screen.Root) {
 		backStack.clear()
 		backStack.add(destination)

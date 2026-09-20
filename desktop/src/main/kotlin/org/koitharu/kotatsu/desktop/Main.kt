@@ -32,10 +32,13 @@ import org.koitharu.kotatsu.desktop.ui.CatalogScreen
 import org.koitharu.kotatsu.desktop.ui.DetailsScreen
 import org.koitharu.kotatsu.desktop.ui.HistoryScreen
 import org.koitharu.kotatsu.desktop.ui.LibraryScreen
+import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
+import org.koitharu.kotatsu.desktop.ui.ErrorBox
 import org.koitharu.kotatsu.desktop.ui.SettingsScreen
 import org.koitharu.kotatsu.desktop.ui.createAppState
 import org.koitharu.kotatsu.shared.settings.ThemeMode
 import org.koitharu.kotatsu.parsers.model.Manga
+import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.desktop.ui.ReaderScreen
 import org.koitharu.kotatsu.desktop.ui.Screen
@@ -80,6 +83,47 @@ private fun launchUi() = application {
 	}
 }
 
+/**
+ * Bridges a feature area's navigation requests onto the shell's stack.
+ *
+ * Features get this rather than [AppState] so they cannot reach screens that are not
+ * theirs, which is what keeps areas independent of each other.
+ */
+@Composable
+private fun rememberNavigator(state: AppState): FeatureNavigator = remember(state) {
+	object : FeatureNavigator {
+		override fun openDetails(source: MangaParserSource, manga: Manga) {
+			state.go(Screen.Details(source, manga))
+		}
+
+		override fun openReader(
+			source: MangaParserSource,
+			manga: Manga,
+			chapters: List<MangaChapter>,
+			chapterIndex: Int,
+			page: Int,
+		) {
+			state.go(Screen.Reader(source, manga, chapters, chapterIndex, page))
+		}
+
+		override fun openLocalReader(
+			manga: Manga,
+			chapters: List<MangaChapter>,
+			chapterIndex: Int,
+			page: Int,
+		) {
+			// Local content still carries a source on its Manga, so the ordinary reader
+			// route works; the pages simply resolve to files rather than urls.
+			val source = manga.source as? MangaParserSource
+			if (source != null) {
+				state.go(Screen.Reader(source, manga, chapters, chapterIndex, page))
+			}
+		}
+
+		override fun back() = state.back()
+	}
+}
+
 @Composable
 private fun NavRail(state: AppState) {
 	NavigationRail {
@@ -94,6 +138,17 @@ private fun NavRail(state: AppState) {
 				// awkward to click even though it renders fine.
 				icon = { Text(glyph, style = MaterialTheme.typography.titleMedium) },
 				label = { Text(label) },
+			)
+		}
+		// Feature areas append themselves, so integrating one is a list entry rather
+		// than an edit to this rail.
+		for (feature in state.features.filter { it.isTopLevel }) {
+			val destination = Screen.FeatureRoot(feature.id)
+			NavigationRailItem(
+				selected = state.root == destination,
+				onClick = { state.selectRoot(destination) },
+				icon = { Text(feature.glyph, style = MaterialTheme.typography.titleMedium) },
+				label = { Text(feature.title) },
 			)
 		}
 	}
@@ -123,6 +178,16 @@ private fun Router(state: AppState) {
 		)
 
 		Screen.Settings -> SettingsScreen(state)
+
+		is Screen.FeatureRoot -> {
+			val feature = state.feature(screen.id)
+			if (feature == null) {
+				// Only reachable if a feature is removed while its screen is open.
+				ErrorBox("This section is not available.", onRetry = { state.selectRoot(Screen.Library) })
+			} else {
+				feature.Content(state.featureContext, rememberNavigator(state))
+			}
+		}
 
 		is Screen.Browse -> BrowseScreen(
 			state = state,
