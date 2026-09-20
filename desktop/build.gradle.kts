@@ -23,6 +23,26 @@ dependencies {
 	// Material 3 Expressive APIs internal. See DECISIONS.md D6a.
 	implementation(libs.compose.material3.cmp)
 	implementation(libs.kotlinx.coroutines.core)
+
+	// The source catalogue. Pure JVM jar, 1270 parsers. Unlike :app we must NOT exclude
+	// org.json: Android ships it in the platform, the JVM does not. See DECISIONS.md D1.
+	implementation("com.github.YakaTeam:kotatsu-parsers:${libs.versions.parsers.get()}")
+
+	implementation(libs.okhttp)
+	implementation(libs.okio)
+	implementation(libs.coil.compose)
+	implementation(libs.coil.network)
+
+	testImplementation(libs.junit)
+	testImplementation(libs.kotlinx.coroutines.test)
+}
+
+tasks.test {
+	// Forward -Dlive=true to the test JVM. providers.systemProperty is the
+	// configuration-cache-safe way to read it; a bare System.getProperty at configuration
+	// time would be an untracked input.
+	systemProperty("live", providers.systemProperty("live").getOrElse("false"))
+	testLogging { showStandardStreams = true }
 }
 
 compose.desktop {
