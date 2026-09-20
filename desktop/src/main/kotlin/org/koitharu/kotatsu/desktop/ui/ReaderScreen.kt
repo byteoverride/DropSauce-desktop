@@ -64,6 +64,7 @@ fun ReaderScreen(
 	manga: Manga,
 	chapters: List<MangaChapter>,
 	chapterIndex: Int,
+	initialPage: Int,
 	onBack: () -> Unit,
 	onChapterChange: (Int) -> Unit,
 ) {
@@ -73,7 +74,10 @@ fun ReaderScreen(
 	var loading by remember(chapter.id) { mutableStateOf(true) }
 	var error: String? by remember(chapter.id) { mutableStateOf(null) }
 	var attempt by remember(chapter.id) { mutableStateOf(0) }
+	// Only the chapter opened from a resume starts mid-way; moving on to the next chapter
+	// must start at its beginning, which is why this keys on the chapter.
 	var index by remember(chapter.id) { mutableStateOf(0) }
+	var appliedInitial by remember(chapter.id) { mutableStateOf(false) }
 	var mode by remember { mutableStateOf(ReaderMode.PAGED_LTR) }
 
 	LaunchedEffect(chapter.id, attempt) {
@@ -81,7 +85,15 @@ fun ReaderScreen(
 		error = null
 		pages.clear()
 		runCatching { withContext(Dispatchers.IO) { session.parser.getPages(chapter) } }
-			.onSuccess { pages.addAll(it) }
+			.onSuccess {
+				pages.addAll(it)
+				if (!appliedInitial) {
+					// Clamped: a source can return fewer pages than when the position
+					// was recorded, and opening past the end would show nothing.
+					index = initialPage.coerceIn(0, (it.size - 1).coerceAtLeast(0))
+					appliedInitial = true
+				}
+			}
 			.onFailure { error = it.message ?: it::class.simpleName ?: "Request failed" }
 		loading = false
 	}

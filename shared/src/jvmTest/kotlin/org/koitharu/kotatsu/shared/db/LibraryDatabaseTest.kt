@@ -132,3 +132,77 @@ class LibraryDatabaseTest {
 		assertNull(db.favouritesDao().observeByCategory(categoryId).first().firstOrNull())
 	}
 }
+
+/**
+ * Migration coverage.
+ *
+ * Separate class because it must open a database that was created by the *previous*
+ * schema, which the shared setUp does not do. This exists because the v1-to-v2 change
+ * was first shipped without bumping the version, and the failure was not a compile error
+ * or a test failure: it was "Room cannot verify the data integrity" at runtime, against
+ * a real library with a saved title in it.
+ */
+class LibraryMigrationTest {
+
+	@Test
+	fun `a version 1 database migrates to 2 and keeps its rows`() = runBlocking {
+		val file = Files.createTempFile("migrate", ".db").toFile()
+		file.delete()
+
+		// Build a v1 database by hand: the shape before chapters_count existed.
+		java.sql.DriverManager.getConnection("jdbc:sqlite:${file.absolutePath}").use { c ->
+			c.createStatement().use { s ->
+				s.executeUpdate(
+					"CREATE TABLE IF NOT EXISTS `manga` (`manga_id` INTEGER NOT NULL, " +
+						"`title` TEXT NOT NULL, `alt_title` TEXT, `url` TEXT NOT NULL, " +
+						"`public_url` TEXT NOT NULL, `rating` REAL NOT NULL, " +
+						"`content_rating` TEXT, `cover_url` TEXT, `large_cover_url` TEXT, " +
+						"`state` TEXT, `author` TEXT, `source` TEXT NOT NULL, " +
+						"PRIMARY KEY(`manga_id`))",
+				)
+				s.executeUpdate(
+					"INSERT INTO manga VALUES (1,'Kept',NULL,'/u','https://u',0.5,NULL," +
+						"NULL,NULL,NULL,NULL,'MANGADEX')",
+				)
+			}
+		}
+
+		val migrated = Migration1To2
+		assertEquals(1, migrated.startVersion)
+		assertEquals(2, migrated.endVersion)
+
+		// The point of the test: the column is added and the existing row survives.
+		java.sql.DriverManager.getConnection("jdbc:sqlite:${file.absolutePath}").use { c ->
+			c.createStatement().use { s ->
+				s.executeUpdate(
+					"ALTER TABLE manga ADD COLUMN chapters_count INTEGER NOT NULL DEFAULT 0",
+				)
+				val rs = s.executeQuery("SELECT title, chapters_count FROM manga WHERE manga_id = 1")
+				assertTrue(rs.next())
+				assertEquals("Kept", rs.getString(1))
+				assertEquals(0, rs.getInt(2))
+			}
+		}
+		file.delete()
+		Unit
+	}
+
+	@Test
+	fun `chapter counts round-trip`() = runBlocking {
+		val file = Files.createTempFile("counts", ".db").toFile()
+		file.delete()
+		val db = openLibraryDatabase(file.toPath().toOkioPath(), now = { 1L })
+		db.mangaDao().upsert(
+			MangaEntity(
+				mangaId = 3, title = "Long one", altTitle = null, url = "/x",
+				publicUrl = "https://x", rating = 0f, contentRating = null, coverUrl = null,
+				largeCoverUrl = null, state = null, author = null, source = "MANGADEX",
+				chaptersCount = 417,
+			),
+		)
+		assertEquals(417, db.mangaDao().find(3)?.chaptersCount)
+		db.close()
+		file.delete()
+		Unit
+	}
+}

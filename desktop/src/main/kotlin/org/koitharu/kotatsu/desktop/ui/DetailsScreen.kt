@@ -39,6 +39,7 @@ import kotlinx.coroutines.withContext
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
+import org.koitharu.kotatsu.shared.db.HistoryEntity
 
 /**
  * Title details and the chapter list.
@@ -52,7 +53,7 @@ fun DetailsScreen(
 	source: MangaParserSource,
 	seed: Manga,
 	onBack: () -> Unit,
-	onRead: (List<MangaChapter>, Int) -> Unit,
+	onRead: (List<MangaChapter>, Int, Int) -> Unit,
 ) {
 	val session = remember(source) { state.sources.session(source) }
 	var manga by remember(seed.id) { mutableStateOf(seed) }
@@ -62,12 +63,20 @@ fun DetailsScreen(
 	var choosingCategories by remember(seed.id) { mutableStateOf(false) }
 	val savedIn by remember(seed.id) { state.library.observeCategoriesOf(seed) }
 		.collectAsState(emptySet())
+	var history: HistoryEntity? by remember(seed.id) { mutableStateOf(null) }
+
+	LaunchedEffect(seed.id) { history = state.library.findHistory(seed) }
 
 	LaunchedEffect(seed.id, attempt) {
 		loading = true
 		error = null
 		runCatching { withContext(Dispatchers.IO) { session.parser.getDetails(seed) } }
-			.onSuccess { manga = it }
+			.onSuccess {
+				manga = it
+				// Keeps a library entry's stored chapter count current, which is what the
+				// library's length filter reads.
+				state.library.refreshStored(it)
+			}
 			.onFailure { error = it.message ?: it::class.simpleName ?: "Request failed" }
 		loading = false
 	}
@@ -93,7 +102,19 @@ fun DetailsScreen(
 						Text(if (savedIn.isEmpty()) "Add to library" else "In library (${savedIn.size})")
 					}
 					if (chapters.isNotEmpty()) {
-						Button(onClick = { onRead(chapters, 0) }) { Text("Read") }
+						// Resume only when the recorded chapter is still in the list; a
+						// source can renumber or drop chapters between visits.
+						val resumeIndex = history?.let { h ->
+							chapters.indexOfFirst { it.id == h.chapterId }.takeIf { it >= 0 }
+						}
+						if (resumeIndex != null) {
+							Button(onClick = { onRead(chapters, resumeIndex, history?.page ?: 0) }) {
+								Text("Continue")
+							}
+							OutlinedButton(onClick = { onRead(chapters, 0, 0) }) { Text("Start over") }
+						} else {
+							Button(onClick = { onRead(chapters, 0, 0) }) { Text("Read") }
+						}
 					}
 				}
 			},
@@ -129,7 +150,8 @@ fun DetailsScreen(
 					items(chapters, key = { it.id }) { chapter ->
 						ChapterRow(
 							chapter = chapter,
-							onClick = { onRead(chapters, chapters.indexOf(chapter)) },
+							isCurrent = chapter.id == history?.chapterId,
+							onClick = { onRead(chapters, chapters.indexOf(chapter), 0) },
 						)
 						HorizontalDivider()
 					}
@@ -265,7 +287,7 @@ private fun Header(manga: Manga, state: AppState, client: okhttp3.OkHttpClient) 
 }
 
 @Composable
-private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
+private fun ChapterRow(chapter: MangaChapter, isCurrent: Boolean, onClick: () -> Unit) {
 	Column(
 		modifier = Modifier
 			.fillMaxWidth()
@@ -275,6 +297,11 @@ private fun ChapterRow(chapter: MangaChapter, onClick: () -> Unit) {
 		Text(
 			text = chapter.title ?: "Chapter ${chapter.number}",
 			style = MaterialTheme.typography.bodyLarge,
+			color = if (isCurrent) {
+				MaterialTheme.colorScheme.primary
+			} else {
+				MaterialTheme.colorScheme.onSurface
+			},
 			maxLines = 1,
 			overflow = TextOverflow.Ellipsis,
 		)

@@ -42,6 +42,11 @@ kotlin {
 			implementation(kotlin("test"))
 			implementation(libs.kotlinx.coroutines.test)
 		}
+		getByName("jvmTest").dependencies {
+			// A plain JDBC driver, used only to build a previous-version database by hand
+			// so the migration can be tested against it.
+			implementation("org.xerial:sqlite-jdbc:3.50.1.0")
+		}
 	}
 }
 

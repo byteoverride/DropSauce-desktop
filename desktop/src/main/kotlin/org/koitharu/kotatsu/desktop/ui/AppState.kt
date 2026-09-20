@@ -39,6 +39,8 @@ sealed interface Screen {
 		val manga: Manga,
 		val chapters: List<MangaChapter>,
 		val chapterIndex: Int,
+		/** Where to open. Non-zero when resuming from history. */
+		val initialPage: Int = 0,
 	) : Screen
 }
 

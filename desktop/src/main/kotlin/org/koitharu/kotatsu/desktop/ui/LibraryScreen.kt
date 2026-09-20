@@ -1,6 +1,8 @@
 package org.koitharu.kotatsu.desktop.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,13 +57,20 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 	var manageTarget: FavouriteCategoryEntity? by remember { mutableStateOf(null) }
 	var creating by remember { mutableStateOf(false) }
 
-	val items by remember(selected) { state.library.observeFavourites(selected) }
+	var lengthFilter by remember { mutableStateOf(ChapterFilter.Any) }
+
+	val all by remember(selected) { state.library.observeFavourites(selected) }
 		.collectAsState(emptyList())
+	val items = remember(all, lengthFilter) { all.filter(lengthFilter::matches) }
 
 	Column(Modifier.fillMaxSize()) {
 		TopBar(
 			title = "Library",
-			subtitle = "${items.size} titles",
+			subtitle = if (lengthFilter == ChapterFilter.Any) {
+				"${items.size} titles"
+			} else {
+				"${items.size} of ${all.size} titles"
+			},
 			trailing = {
 				Button(onClick = { creating = true }) { Text("New category") }
 			},
@@ -72,7 +81,16 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 			onSelect = { selected = it },
 			onManage = { manageTarget = it },
 		)
+		ChapterFilterChips(selected = lengthFilter, onSelect = { lengthFilter = it })
 		when {
+			items.isEmpty() && all.isNotEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+				Text(
+					"No titles match ${lengthFilter.label.lowercase()}.",
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+
 			items.isEmpty() -> EmptyLibrary(hasCategories = categories.isNotEmpty())
 			else -> LazyVerticalGrid(
 				columns = GridCells.Adaptive(minSize = 150.dp),
@@ -117,6 +135,52 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 				manageTarget = null
 			},
 		)
+	}
+}
+
+/**
+ * Filter the library by how long a title is.
+ *
+ * Counts come from the stored `chapters_count`, written whenever a title's details are
+ * loaded. A title saved but never opened has no count, so [Unknown] exists to make those
+ * findable rather than quietly absent from every bucket.
+ */
+enum class ChapterFilter(val label: String, private val range: IntRange?) {
+
+	Any("Any length", null),
+	Unknown("Not loaded", 0..0),
+	Short("1 to 25", 1..25),
+	Medium("26 to 100", 26..100),
+	Long("101 to 500", 101..500),
+	VeryLong("Over 500", 501..Int.MAX_VALUE),
+	;
+
+	fun matches(item: LibraryItem): Boolean =
+		range == null || item.chaptersCount in range
+}
+
+@Composable
+private fun ChapterFilterChips(selected: ChapterFilter, onSelect: (ChapterFilter) -> Unit) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.horizontalScroll(rememberScrollState())
+			.padding(horizontal = 16.dp, vertical = 4.dp),
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Text(
+			text = "Chapters",
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		for (filter in ChapterFilter.entries) {
+			FilterChip(
+				selected = filter == selected,
+				onClick = { onSelect(filter) },
+				label = { Text(filter.label) },
+			)
+		}
 	}
 }
 
@@ -205,6 +269,15 @@ private fun LibraryCard(
 			style = MaterialTheme.typography.bodySmall,
 			maxLines = 2,
 			overflow = TextOverflow.Ellipsis,
+		)
+		Text(
+			text = if (item.chaptersCount > 0) {
+				"${item.chaptersCount} chapters"
+			} else {
+				"chapters not loaded"
+			},
+			style = MaterialTheme.typography.labelSmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 		if (source == null) {
 			// The stored source is not in this build's catalogue. Say so rather than

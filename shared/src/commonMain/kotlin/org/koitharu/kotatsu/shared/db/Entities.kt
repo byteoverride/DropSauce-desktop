@@ -28,6 +28,14 @@ data class MangaEntity(
 	@ColumnInfo(name = "state") val state: String?,
 	@ColumnInfo(name = "author") val author: String?,
 	@ColumnInfo(name = "source") val source: String,
+	/**
+	 * Chapters the source reported when this row was last written, or 0 when unknown.
+	 *
+	 * Stored rather than derived because the library deliberately does not persist the
+	 * chapter list (it goes stale and is cheap to refetch), but filtering a library by
+	 * length has to work without a network round trip per title.
+	 */
+	@ColumnInfo(name = "chapters_count", defaultValue = "0") val chaptersCount: Int = 0,
 )
 
 @Entity(tableName = "favourite_categories")

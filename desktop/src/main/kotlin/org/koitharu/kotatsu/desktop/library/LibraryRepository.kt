@@ -14,6 +14,8 @@ import org.koitharu.kotatsu.shared.db.MangaEntity
 data class LibraryItem(
 	val manga: Manga,
 	val sourceName: String,
+	/** Chapters the source last reported, or 0 when it has never been loaded. */
+	val chaptersCount: Int,
 )
 
 /** A history entry with enough context to resume. */
@@ -62,7 +64,9 @@ class LibraryRepository(private val db: LibraryDatabase) {
 	fun observeFavourites(categoryId: Long?): Flow<List<LibraryItem>> {
 		val dao = db.favouritesDao()
 		val source = if (categoryId == null) dao.observeAll() else dao.observeByCategory(categoryId)
-		return source.map { rows -> rows.map { LibraryItem(it.manga.toManga(), it.manga.source) } }
+		return source.map { rows ->
+			rows.map { LibraryItem(it.manga.toManga(), it.manga.source, it.manga.chaptersCount) }
+		}
 	}
 
 	fun observeCategoriesOf(manga: Manga): Flow<Set<Long>> =
@@ -71,7 +75,7 @@ class LibraryRepository(private val db: LibraryDatabase) {
 	suspend fun setFavourite(manga: Manga, categoryId: Long, favourite: Boolean) {
 		if (favourite) {
 			// The manga row must exist first: favourites has a foreign key onto it.
-			db.mangaDao().upsert(manga.toEntity())
+			db.mangaDao().upsert(manga.toEntity(chaptersCountFor(manga)))
 			db.favouritesDao().upsert(
 				FavouriteEntity(
 					mangaId = manga.id,
@@ -84,6 +88,21 @@ class LibraryRepository(private val db: LibraryDatabase) {
 		} else {
 			db.favouritesDao().remove(manga.id, categoryId)
 		}
+	}
+
+	/**
+	 * Updates the stored row for a title that is already known, after its details have
+	 * been loaded.
+	 *
+	 * Deliberately does not insert: a title the user merely looked at should not appear
+	 * in the library. Without this, anything saved before its chapter count was known
+	 * would stay "not loaded" forever, which makes the length filter useless for exactly
+	 * the entries that have been in the library longest.
+	 */
+	suspend fun refreshStored(manga: Manga) {
+		val existing = db.mangaDao().find(manga.id) ?: return
+		val count = manga.chapters?.size?.takeIf { it > 0 } ?: existing.chaptersCount
+		db.mangaDao().upsert(manga.toEntity(count))
 	}
 
 	fun observeHistory(limit: Int = HISTORY_LIMIT): Flow<List<HistoryItem>> =
@@ -110,7 +129,7 @@ class LibraryRepository(private val db: LibraryDatabase) {
 		chaptersCount: Int,
 		percent: Float,
 	) {
-		db.mangaDao().upsert(manga.toEntity())
+		db.mangaDao().upsert(manga.toEntity(chaptersCount.takeIf { it > 0 } ?: chaptersCountFor(manga)))
 		val now = System.currentTimeMillis()
 		val existing = db.historyDao().find(manga.id)
 		db.historyDao().upsert(
@@ -132,6 +151,18 @@ class LibraryRepository(private val db: LibraryDatabase) {
 
 	suspend fun clearHistory() = db.historyDao().clear()
 
+	/**
+	 * Best known chapter count for [manga].
+	 *
+	 * Prefers what the loaded object carries, falling back to whatever is already
+	 * stored. Without the fallback, saving a title from a list screen (where chapters
+	 * are null) would wipe a count learned earlier from its details screen.
+	 */
+	private suspend fun chaptersCountFor(manga: Manga): Int =
+		manga.chapters?.size?.takeIf { it > 0 }
+			?: db.mangaDao().find(manga.id)?.chaptersCount
+			?: 0
+
 	private companion object {
 
 		const val DEFAULT_ORDER = "NEWEST"
@@ -139,7 +170,7 @@ class LibraryRepository(private val db: LibraryDatabase) {
 	}
 }
 
-private fun Manga.toEntity() = MangaEntity(
+private fun Manga.toEntity(chaptersCount: Int) = MangaEntity(
 	mangaId = id,
 	title = title,
 	altTitle = altTitles.firstOrNull(),
@@ -152,6 +183,7 @@ private fun Manga.toEntity() = MangaEntity(
 	state = state?.name,
 	author = authors.firstOrNull(),
 	source = source.name,
+	chaptersCount = chaptersCount,
 )
 
 private fun MangaEntity.toManga() = Manga(

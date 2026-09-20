@@ -4,6 +4,7 @@ import androidx.room.ConstructedBy
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
+import androidx.room.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 
@@ -14,7 +15,7 @@ import androidx.sqlite.execSQL
 		FavouriteEntity::class,
 		HistoryEntity::class,
 	],
-	version = 1,
+	version = 2,
 	exportSchema = true,
 )
 @ConstructedBy(LibraryDatabaseConstructor::class)
@@ -33,6 +34,23 @@ abstract class LibraryDatabase : RoomDatabase() {
 expect object LibraryDatabaseConstructor : RoomDatabaseConstructor<LibraryDatabase> {
 
 	override fun initialize(): LibraryDatabase
+}
+
+/**
+ * Adds `manga.chapters_count`, so the library can be filtered by length without
+ * refetching every title.
+ *
+ * Written against [SQLiteConnection] rather than `SupportSQLiteDatabase`. Per
+ * DECISIONS.md D14 that is the overload Room actually calls on both platforms, so a
+ * migration written this way would serve Android too.
+ */
+val Migration1To2: Migration = object : Migration(1, 2) {
+
+	override fun migrate(connection: SQLiteConnection) {
+		connection.execSQL(
+			"ALTER TABLE manga ADD COLUMN chapters_count INTEGER NOT NULL DEFAULT 0",
+		)
+	}
 }
 
 /**
