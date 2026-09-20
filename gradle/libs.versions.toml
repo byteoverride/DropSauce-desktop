@@ -52,12 +52,22 @@ webkit = "1.15.0"
 workRuntime = "2.11.2"
 window = "1.5.1"
 composeBom = "2026.09.00"
+# Compose Multiplatform, for the :desktop module. Latest stable; proven against
+# Kotlin 2.3.21 + AGP 9.2.1 + Room KMP 2.8.4 in docs/porting/E-build.md.
+composeMultiplatform = "1.12.0"
+# CMP's material3 is version-decoupled from CMP: compose.material3 at CMP 1.12.0
+# resolves to material3 1.9.0, where the Expressive APIs are internal. Pinning the
+# alpha makes them public. See DECISIONS.md D6a.
+material3Cmp = "1.12.0-alpha03"
+sqliteBundled = "2.8.0-alpha01"
 # material3 ships the Expressive APIs (MotionScheme, MaterialShapes, ButtonGroup, wavy
 # progress, FAB menu) only in the 1.5 line; in 1.4.0 stable they are still Kotlin-internal.
 material3 = "1.5.0-alpha28"
 graphicsShapes = "1.0.1"
 
 [libraries]
+compose-material3-cmp = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3Cmp" }
+androidx-sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "sqliteBundled" }
 acra-dialog = { module = "ch.acra:acra-dialog", version.ref = "acra" }
 adapterdelegates = { module = "com.hannesdorfmann:adapterdelegates4-kotlin-dsl", version.ref = "adapterdelegates" }
 adapterdelegates-viewbinding = { module = "com.hannesdorfmann:adapterdelegates4-kotlin-dsl-viewbinding", version.ref = "adapterdelegates" }
@@ -145,3 +155,9 @@ kotlinx-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", vers
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 room = { id = "androidx.room", version.ref = "room" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlinPlugin" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlinPlugin" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlinPlugin" }
+# AGP 9 forbids com.android.library alongside kotlin.multiplatform; this is the
+# replacement plugin. See DECISIONS.md D6.
+android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "gradle" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
