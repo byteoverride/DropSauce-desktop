@@ -7,17 +7,16 @@ import kotlinx.serialization.Serializable
 /** How the app picks between light and dark. */
 enum class ThemeMode { System, Light, Dark }
 
-/** Default reading direction for newly opened chapters. */
+/**
+ * Reading direction.
+ *
+ * The desktop reader is webtoon-only, so nothing here selects between these at runtime.
+ * The type survives because `manga_prefs.reading_mode` and the backup format both carry
+ * it, and the Android app does have paged modes: dropping the value would silently lose
+ * an Android user's per-title choice on a backup round trip.
+ */
 enum class ReadingMode { PagedLtr, PagedRtl, Webtoon }
 
-/**
- * How a page is scaled to the window in the paged modes.
- *
- * [FitPage] shows the whole page, which on a tall page in a wide window leaves it small.
- * [FitWidth] fills the width and lets the page run off the bottom, which is what most
- * readers actually want on a large display.
- */
-enum class PageFit { FitPage, FitWidth, FitHeight, Original }
 
 /**
  * Everything the desktop app remembers between runs, other than the library.
@@ -33,7 +32,6 @@ enum class PageFit { FitPage, FitWidth, FitHeight, Original }
 data class SettingsData(
 	/** Dark by default: this is a reader, and it is what the user asked for. */
 	@SerialName("theme") val theme: ThemeMode = ThemeMode.Dark,
-	@SerialName("reading_mode") val readingMode: ReadingMode = ReadingMode.PagedLtr,
 	/**
 	 * Multiplier applied to the whole interface: text, icons, spacing, everything.
 	 *
@@ -53,8 +51,6 @@ data class SettingsData(
 	 * put back to 100.
 	 */
 	@SerialName("webtoon_width_percent") val webtoonWidthPercent: Int = 60,
-	/** How a single page is sized in the paged modes. */
-	@SerialName("page_fit") val pageFit: PageFit = PageFit.FitPage,
 	/**
 	 * Hide adult sources from the catalogue.
 	 *

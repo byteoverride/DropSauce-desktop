@@ -2,6 +2,8 @@ package org.koitharu.kotatsu.desktop.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -21,6 +23,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -67,11 +71,6 @@ import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaPage
 import org.koitharu.kotatsu.desktop.feature.reading.BookmarkToggle
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
-import org.koitharu.kotatsu.shared.settings.PageFit
-import org.koitharu.kotatsu.shared.settings.ReadingMode
-
-/** Reading direction. Webtoon is one continuous vertical strip; the others are paged. */
-enum class ReaderMode { PAGED_LTR, PAGED_RTL, WEBTOON }
 
 /**
  * The reader.
@@ -102,14 +101,6 @@ fun ReaderScreen(
 	// must start at its beginning, which is why this keys on the chapter.
 	var index by remember(chapter.id) { mutableStateOf(0) }
 	var appliedInitial by remember(chapter.id) { mutableStateOf(false) }
-	// Start from the app default, then let a per-title override win. Both are applied
-	// once per title rather than per chapter, so switching mode mid-title sticks.
-	var mode by remember(manga.id) {
-		mutableStateOf(state.settings.data.value.readingMode.toReaderMode())
-	}
-	LaunchedEffect(manga.id) {
-		state.titlePrefs.find(manga.id)?.readingMode?.let { mode = it.toReaderMode() }
-	}
 	val zoom = remember { ZoomState() }
 	val settings by state.settings.data.collectAsState()
 
@@ -197,12 +188,16 @@ fun ReaderScreen(
 			}
 			.onPreviewKeyEvent { event ->
 				if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-				// Reading direction decides what "forward" means for the arrow keys.
-				val forward = if (mode == ReaderMode.PAGED_RTL) Key.DirectionLeft else Key.DirectionRight
-				val back = if (mode == ReaderMode.PAGED_RTL) Key.DirectionRight else Key.DirectionLeft
 				when (event.key) {
-					forward, Key.PageDown, Key.Spacebar -> { next(); true }
-					back, Key.PageUp -> { previous(); true }
+					Key.DirectionRight, Key.DirectionDown, Key.PageDown, Key.Spacebar -> {
+						next()
+						true
+					}
+
+					Key.DirectionLeft, Key.DirectionUp, Key.PageUp -> {
+						previous()
+						true
+					}
 					// Keyboard zoom, because a mouse without a wheel or a trackpad
 					// without pinch would otherwise have no way to zoom at all.
 					Key.Equals, Key.Plus, Key.NumPadAdd -> { zoom.zoomBy(KEY_STEP); true }
@@ -219,8 +214,6 @@ fun ReaderScreen(
 			chapter = chapter,
 			index = index,
 			total = pages.size,
-			mode = mode,
-			onMode = { mode = it },
 			onBack = onBack,
 			bookmark = {
 				val current = pages.getOrNull(index)
@@ -241,37 +234,29 @@ fun ReaderScreen(
 				}
 			},
 		)
+		// weight(1f), not the content's own fillMaxSize: inside a Column a child that
+		// fills takes every remaining pixel, which left the status bar below it with
+		// zero height and therefore invisible.
+		Box(Modifier.weight(1f)) {
 		when {
 			loading -> LoadingBox()
 			error != null -> ErrorBox("Could not load pages.\n$error", onRetry = { attempt++ })
 			pages.isEmpty() -> ErrorBox("This chapter has no pages.", onRetry = { attempt++ })
-			mode == ReaderMode.WEBTOON -> WebtoonStrip(
+			else -> WebtoonStrip(
 				pageSource = pageSource,
 				pages = pages,
 				zoom = zoom,
 				widthPercent = settings.webtoonWidthPercent,
 			)
-
-			else -> PagedView(
-				pageSource = pageSource,
-				pages = pages,
-				index = index,
-				zoom = zoom,
-				fit = settings.pageFit,
-			)
+		}
 		}
 		ReaderStatusBar(
-			mode = mode,
 			index = index,
 			total = pages.size,
 			widthPercent = settings.webtoonWidthPercent,
-			fit = settings.pageFit,
 			zoom = zoom,
 			onWidthPercent = { value ->
 				state.scope.launch { state.settings.update { it.copy(webtoonWidthPercent = value) } }
-			},
-			onFit = { value ->
-				state.scope.launch { state.settings.update { it.copy(pageFit = value) } }
 			},
 		)
 	}
@@ -284,8 +269,6 @@ private fun ReaderBar(
 	chapter: MangaChapter,
 	index: Int,
 	total: Int,
-	mode: ReaderMode,
-	onMode: (ReaderMode) -> Unit,
 	onBack: () -> Unit,
 	bookmark: @Composable () -> Unit = {},
 ) {
@@ -316,20 +299,6 @@ private fun ReaderBar(
 				style = MaterialTheme.typography.bodySmall,
 				color = Color.White.copy(alpha = 0.7f),
 			)
-		}
-		for (option in ReaderMode.entries) {
-			Button(
-				onClick = { onMode(option) },
-				enabled = option != mode,
-			) {
-				Text(
-					when (option) {
-						ReaderMode.PAGED_LTR -> "LTR"
-						ReaderMode.PAGED_RTL -> "RTL"
-						ReaderMode.WEBTOON -> "Webtoon"
-					},
-				)
-			}
 		}
 	}
 }
@@ -415,43 +384,6 @@ private fun Modifier.pinchAndPan(zoom: ZoomState, key: Any?): Modifier =
 			zoom.panBy(pan.x, pan.y)
 		}
 	}
-
-/** One page at a time, with pinch/scroll zoom and drag to pan. */
-@Composable
-private fun PagedView(
-	pageSource: ReaderPageSource,
-	pages: List<MangaPage>,
-	index: Int,
-	zoom: ZoomState,
-	fit: PageFit,
-) {
-	Box(
-		modifier = Modifier
-			.fillMaxSize()
-			.ctrlScrollZoom(zoom)
-			.pinchAndPan(zoom, index),
-		contentAlignment = Alignment.Center,
-	) {
-		PageImage(
-			page = pages[index],
-			pageSource = pageSource,
-			contentScale = when (fit) {
-				// Inside is Fit that refuses to enlarge, which is what "original" means
-				// for a page smaller than the window.
-				PageFit.FitPage -> ContentScale.Fit
-				PageFit.FitWidth -> ContentScale.FillWidth
-				PageFit.FitHeight -> ContentScale.FillHeight
-				PageFit.Original -> ContentScale.Inside
-			},
-			modifier = Modifier.fillMaxSize().graphicsLayer {
-				scaleX = zoom.scale
-				scaleY = zoom.scale
-				translationX = zoom.offsetX
-				translationY = zoom.offsetY
-			},
-		)
-	}
-}
 
 /** Continuous vertical strip. Pages are decoded whole; see D10 on tiling. */
 @Composable
@@ -567,112 +499,75 @@ private const val WHEEL_STEP = 1.15f
 /** Per key press. Larger than a wheel notch, since keys are pressed deliberately. */
 private const val KEY_STEP = 1.25f
 
-
-/**
- * Maps the shared settings enum onto the reader's own mode.
- *
- * The boundary lives here because `ReaderMode` is private to the reader while
- * `ReadingMode` is what the settings and the `reading_mode` column speak. The feature
- * area deliberately did not import `ReaderMode`, so this is the shell's two lines.
- */
-fun ReadingMode.toReaderMode(): ReaderMode = when (this) {
-	ReadingMode.PagedLtr -> ReaderMode.PAGED_LTR
-	ReadingMode.PagedRtl -> ReaderMode.PAGED_RTL
-	ReadingMode.Webtoon -> ReaderMode.WEBTOON
-}
-
-
 /**
  * The reader's status bar, modelled on the one in a PDF or document viewer.
  *
  * Zoom used to be reachable only by Ctrl plus wheel, which is invisible, and the
- * underlying complaint was not really about zoom: webtoon pages were too large and
- * paged pages too small because nothing let the reader choose how a page is fitted.
- * So this carries both, in the place people already look for them, and the fit and
- * width settings persist while the zoom slider stays per session as the ad-hoc
- * adjustment on top.
+ * underlying complaint was not really about zoom: a full-width webtoon strip on a wide
+ * display is simply enormous. So the strip width lives here, next to zoom, in the place
+ * people already look. Width persists; the zoom percentage is per session, being the
+ * ad-hoc adjustment on top.
  */
 @Composable
 private fun ReaderStatusBar(
-	mode: ReaderMode,
 	index: Int,
 	total: Int,
 	widthPercent: Int,
-	fit: PageFit,
 	zoom: ZoomState,
 	onWidthPercent: (Int) -> Unit,
-	onFit: (PageFit) -> Unit,
 ) {
+	// Deliberately lighter than the reader's black and separated by a rule. A bar that
+	// blends into the page is a bar nobody finds, which is what the first version did.
+	HorizontalDivider(color = Color.White.copy(alpha = 0.18f))
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
-			.background(Color(0xFF16141A))
-			.padding(horizontal = 12.dp, vertical = 6.dp),
+			.background(Color(0xFF2A2732))
+			// Scrolls rather than clipping: at a large interface scale in a narrow
+			// window the controls are wider than the bar, and a zoom slider you cannot
+			// reach is worse than one you have to nudge sideways to.
+			.horizontalScroll(rememberScrollState())
+			.padding(horizontal = 16.dp, vertical = 10.dp),
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(10.dp),
+		horizontalArrangement = Arrangement.spacedBy(12.dp),
 	) {
 		Text(
 			text = if (total == 0) "" else "Page ${index + 1} of $total",
-			style = MaterialTheme.typography.labelMedium,
-			color = Color.White.copy(alpha = 0.75f),
+			style = MaterialTheme.typography.bodyMedium,
+			color = Color.White,
 		)
-		Spacer(Modifier.weight(1f))
+		Spacer(Modifier.width(16.dp))
 
-		if (mode == ReaderMode.WEBTOON) {
-			// Width, not zoom. Narrowing the strip also shortens how far there is to
-			// scroll, which zooming out does not, and that is the actual problem with a
-			// full-width webtoon on a wide display.
-			Text(
-				"Strip width",
-				style = MaterialTheme.typography.labelSmall,
-				color = Color.White.copy(alpha = 0.6f),
-			)
-			Slider(
-				value = widthPercent.toFloat(),
-				onValueChange = { onWidthPercent(it.toInt()) },
-				valueRange = 20f..100f,
-				modifier = Modifier.width(160.dp),
-			)
-			Text(
-				"$widthPercent%",
-				style = MaterialTheme.typography.labelMedium,
-				color = Color.White,
-				modifier = Modifier.widthIn(min = 48.dp),
-			)
-		} else {
-			for (option in PageFit.entries) {
-				TextButton(onClick = { onFit(option) }, enabled = option != fit) {
-					Text(
-						when (option) {
-							PageFit.FitPage -> "Fit page"
-							PageFit.FitWidth -> "Fit width"
-							PageFit.FitHeight -> "Fit height"
-							PageFit.Original -> "Actual size"
-						},
-						style = MaterialTheme.typography.labelSmall,
-					)
-				}
-			}
-		}
+		// Width rather than zoom on purpose: narrowing the strip also shortens how far
+		// there is to scroll, which zooming out does not.
+		Text("Strip width", style = MaterialTheme.typography.bodyMedium, color = Color.White)
+		Slider(
+			value = widthPercent.toFloat(),
+			onValueChange = { onWidthPercent(it.toInt()) },
+			valueRange = 20f..100f,
+			modifier = Modifier.width(150.dp),
+		)
+		Text(
+			"$widthPercent%",
+			style = MaterialTheme.typography.bodyMedium,
+			color = Color.White,
+			modifier = Modifier.widthIn(min = 64.dp),
+		)
 
 		VerticalDivider(modifier = Modifier.height(20.dp))
 
-		TextButton(onClick = { zoom.zoomBy(1f / KEY_STEP) }) { Text("\u2212") }
+		Text("Zoom", style = MaterialTheme.typography.bodyMedium, color = Color.White)
+		OutlinedButton(onClick = { zoom.zoomBy(1f / KEY_STEP) }) { Text("\u2212") }
 		Slider(
 			value = zoom.scale,
 			onValueChange = zoom::zoomTo,
 			valueRange = MIN_SCALE..MAX_SCALE,
-			modifier = Modifier.width(180.dp),
+			modifier = Modifier.width(150.dp),
 		)
-		TextButton(onClick = { zoom.zoomBy(KEY_STEP) }) { Text("+") }
-		// Clicking the percentage resets, the way a document viewer's zoom readout does.
-		TextButton(onClick = { zoom.reset() }) {
-			Text(
-				"${(zoom.scale * 100).toInt()}%",
-				style = MaterialTheme.typography.labelMedium,
-			)
+		OutlinedButton(onClick = { zoom.zoomBy(KEY_STEP) }) { Text("+") }
+		// Fixed width so the row does not shuffle sideways as the number changes.
+		TextButton(onClick = { zoom.reset() }, modifier = Modifier.widthIn(min = 76.dp)) {
+			Text("${(zoom.scale * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
 		}
 	}
 }
-
-

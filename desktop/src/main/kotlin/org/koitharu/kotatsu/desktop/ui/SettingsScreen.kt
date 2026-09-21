@@ -28,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import org.koitharu.kotatsu.shared.settings.ReadingMode
 import org.koitharu.kotatsu.shared.settings.SettingsData
 import org.koitharu.kotatsu.shared.settings.ThemeMode
 
@@ -77,19 +76,6 @@ fun SettingsScreen(state: AppState) {
 			}
 
 			Section("Reader") {
-				ChoiceRow(
-					label = "Default reading mode",
-					options = ReadingMode.entries,
-					selected = settings.readingMode,
-					name = {
-						when (it) {
-							ReadingMode.PagedLtr -> "Paged, left to right"
-							ReadingMode.PagedRtl -> "Paged, right to left"
-							ReadingMode.Webtoon -> "Webtoon"
-						}
-					},
-					onSelect = { choice -> edit { it.copy(readingMode = choice) } },
-				)
 				NumberRow(
 					label = "Retries per page image",
 					help = "How many times to re-request a page before giving up on it.",

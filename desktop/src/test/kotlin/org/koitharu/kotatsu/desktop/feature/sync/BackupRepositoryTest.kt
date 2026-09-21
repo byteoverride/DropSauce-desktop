@@ -11,7 +11,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.koitharu.kotatsu.shared.db.LibraryDatabase
-import org.koitharu.kotatsu.shared.settings.ReadingMode
 import org.koitharu.kotatsu.shared.settings.SettingsData
 import org.koitharu.kotatsu.shared.settings.ThemeMode
 import java.io.File
@@ -300,7 +299,7 @@ class BackupRepositoryTest {
 		sourceSettings.update {
 			SettingsData(
 				theme = ThemeMode.Light,
-				readingMode = ReadingMode.PagedRtl,
+				webtoonWidthPercent = 35,
 				hideAdultSources = false,
 				hiddenSourceTerms = listOf("one", "two"),
 				imageCacheEntries = 123,
@@ -314,7 +313,7 @@ class BackupRepositoryTest {
 
 		val restored = targetSettings.data.value
 		assertEquals(ThemeMode.Light, restored.theme)
-		assertEquals(ReadingMode.PagedRtl, restored.readingMode)
+		assertEquals(35, restored.webtoonWidthPercent)
 		assertFalse(restored.hideAdultSources)
 		assertEquals(listOf("one", "two"), restored.hiddenSourceTerms)
 		assertEquals(123, restored.imageCacheEntries)

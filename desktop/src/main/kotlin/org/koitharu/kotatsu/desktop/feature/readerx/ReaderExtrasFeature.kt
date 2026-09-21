@@ -103,7 +103,8 @@ private fun ReaderExtrasScreen(context: FeatureContext) {
 		TapZoneEditor(
 			grid = prefs.tapZones,
 			onChange = { scope.launch { store.setTapZones(it) } },
-			isRtl = settings.readingMode.isRtl(),
+			// The desktop reader is webtoon-only, so there is no right-to-left case.
+			isRtl = false,
 			onReset = { scope.launch { store.setTapZones(TapZoneGrid.DEFAULT) } },
 		)
 
@@ -112,7 +113,6 @@ private fun ReaderExtrasScreen(context: FeatureContext) {
 		OverridesSection(
 			overrides = overrides,
 			filteredTitles = prefs.titleFilters.keys,
-			defaultReadingMode = settings.readingMode,
 			onSave = { edited -> scope.launch { repository.saveExisting(edited) } },
 			onClear = { mangaId ->
 				scope.launch {
@@ -128,7 +128,6 @@ private fun ReaderExtrasScreen(context: FeatureContext) {
 private fun OverridesSection(
 	overrides: List<TitleOverride>,
 	filteredTitles: Set<Long>,
-	defaultReadingMode: ReadingMode,
 	onSave: (TitlePrefs) -> Unit,
 	onClear: (Long) -> Unit,
 ) {
@@ -149,7 +148,6 @@ private fun OverridesSection(
 				OverrideRow(
 					entry = entry,
 					hasOwnFilter = entry.prefs.mangaId in filteredTitles,
-					defaultReadingMode = defaultReadingMode,
 					onSave = onSave,
 					onClear = { onClear(entry.prefs.mangaId) },
 				)
@@ -179,7 +177,6 @@ private fun OverridesSection(
 private fun OverrideRow(
 	entry: TitleOverride,
 	hasOwnFilter: Boolean,
-	defaultReadingMode: ReadingMode,
 	onSave: (TitlePrefs) -> Unit,
 	onClear: () -> Unit,
 ) {
@@ -188,7 +185,6 @@ private fun OverrideRow(
 	// a database write per character typed into the title override field.
 	var draft by remember(entry.prefs) { mutableStateOf(entry.prefs) }
 	val summary = buildList {
-		entry.prefs.readingMode?.let { add(it.label()) }
 		entry.prefs.branch?.let { add("branch: $it") }
 		if (entry.prefs.titleOverride != null) add("renamed")
 		if (entry.prefs.coverOverride != null) add("custom cover")
@@ -223,7 +219,6 @@ private fun OverrideRow(
 			TitlePrefsEditor(
 				prefs = draft,
 				onChange = { draft = it },
-				defaultReadingMode = defaultReadingMode,
 				onClear = {
 					draft = TitlePrefs(mangaId = entry.prefs.mangaId)
 					onSave(draft)

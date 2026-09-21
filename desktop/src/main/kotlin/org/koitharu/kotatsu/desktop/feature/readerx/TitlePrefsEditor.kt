@@ -35,7 +35,6 @@ fun TitlePrefsEditor(
 	modifier: Modifier = Modifier,
 	/** Branches or scanlators this title actually offers, if they have been fetched. */
 	branches: List<String> = emptyList(),
-	defaultReadingMode: ReadingMode? = null,
 	onClear: (() -> Unit)? = null,
 ) {
 	Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -47,29 +46,6 @@ fun TitlePrefsEditor(
 			)
 			if (onClear != null) {
 				TextButton(onClick = onClear, enabled = !prefs.isEmpty) { Text("Clear all") }
-			}
-		}
-
-		Text("Reading mode", style = MaterialTheme.typography.labelLarge)
-		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-			FilterChip(
-				selected = prefs.readingMode == null,
-				onClick = { onChange(prefs.copy(readingMode = null)) },
-				label = {
-					Text(
-						// Naming the current default here, not storing it. The chip means
-						// "whatever the app is set to", which is a different thing from
-						// the value it happens to hold today.
-						text = defaultReadingMode?.let { "App default (${it.label()})" } ?: "App default",
-					)
-				},
-			)
-			for (mode in ReadingMode.entries) {
-				FilterChip(
-					selected = prefs.readingMode == mode,
-					onClick = { onChange(prefs.copy(readingMode = mode)) },
-					label = { Text(mode.label()) },
-				)
 			}
 		}
 

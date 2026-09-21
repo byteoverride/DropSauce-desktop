@@ -16,7 +16,7 @@ class JsonSettingsStoreTest {
 	fun `defaults apply when no file exists`() {
 		val store = JsonSettingsStore(tempDir() / "settings.json")
 		assertEquals(ThemeMode.Dark, store.data.value.theme)
-		assertEquals(ReadingMode.PagedLtr, store.data.value.readingMode)
+		assertEquals(60, store.data.value.webtoonWidthPercent)
 		assertTrue(store.data.value.hideAdultSources)
 	}
 
@@ -24,12 +24,12 @@ class JsonSettingsStoreTest {
 	fun `changes persist across a restart`() = runBlocking {
 		val path = tempDir() / "settings.json"
 		val first = JsonSettingsStore(path)
-		first.update { it.copy(theme = ThemeMode.Dark, readingMode = ReadingMode.Webtoon) }
+		first.update { it.copy(theme = ThemeMode.Dark, webtoonWidthPercent = 35) }
 
 		// A separate instance reading the same file is the restart.
 		val second = JsonSettingsStore(path)
 		assertEquals(ThemeMode.Dark, second.data.value.theme)
-		assertEquals(ReadingMode.Webtoon, second.data.value.readingMode)
+		assertEquals(35, second.data.value.webtoonWidthPercent)
 	}
 
 	@Test

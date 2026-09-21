@@ -12,7 +12,6 @@ import okio.buffer
 import org.koitharu.kotatsu.shared.db.FavouriteCategoryEntity
 import org.koitharu.kotatsu.shared.db.LibraryDatabase
 import org.koitharu.kotatsu.shared.db.MangaEntity
-import org.koitharu.kotatsu.shared.settings.ReadingMode
 import org.koitharu.kotatsu.shared.settings.SettingsData
 import org.koitharu.kotatsu.shared.settings.SettingsStore
 import org.koitharu.kotatsu.shared.settings.ThemeMode
@@ -541,7 +540,11 @@ internal fun String.categoryKey(): String = trim().lowercase()
 
 internal fun SettingsData.toBackupJson(): JsonObject = jsonObject(
 	"theme" to BackupPrimitive.Str(theme.name).toJson(),
-	"reading_mode" to BackupPrimitive.Str(readingMode.name).toJson(),
+	// Added when the reader gained them. A settings field that exists but is not
+	// listed here is silently absent from every backup, which is how uiScale and the
+	// strip width were being lost until a round-trip test noticed.
+	"ui_scale" to BackupPrimitive.Str(uiScale.toString()).toJson(),
+	"webtoon_width_percent" to BackupPrimitive.Integer(webtoonWidthPercent).toJson(),
 	"hide_adult_sources" to BackupPrimitive.Bool(hideAdultSources).toJson(),
 	"hidden_source_terms" to BackupPrimitive.Strings(hiddenSourceTerms).toJson(),
 	"image_cache_entries" to BackupPrimitive.Integer(imageCacheEntries).toJson(),
@@ -562,9 +565,9 @@ internal fun SettingsData.withBackupValues(values: Map<String, BackupPrimitive>)
 	fun int(key: String): Int? = (values[key] as? BackupPrimitive.Integer)?.value
 	return copy(
 		theme = str("theme")?.let { name -> ThemeMode.entries.firstOrNull { it.name == name } } ?: theme,
-		readingMode = str("reading_mode")
-			?.let { name -> ReadingMode.entries.firstOrNull { it.name == name } }
-			?: readingMode,
+		uiScale = str("ui_scale")?.toFloatOrNull()?.takeIf { it > 0f } ?: uiScale,
+		webtoonWidthPercent = int("webtoon_width_percent")?.takeIf { it in 20..100 }
+			?: webtoonWidthPercent,
 		hideAdultSources = bool("hide_adult_sources") ?: hideAdultSources,
 		hiddenSourceTerms = (values["hidden_source_terms"] as? BackupPrimitive.Strings)?.value
 			?: hiddenSourceTerms,
