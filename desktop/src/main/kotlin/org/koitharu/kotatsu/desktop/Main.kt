@@ -225,8 +225,8 @@ private fun Router(state: AppState) {
 			chapterIndex = screen.chapterIndex,
 			initialPage = screen.initialPage,
 			onBack = state::back,
-			onChapterChange = { index ->
-				state.replace(screen.copy(chapterIndex = index, initialPage = 0))
+			onChapterChange = { index, page ->
+				state.replace(screen.copy(chapterIndex = index, initialPage = page))
 			},
 		)
 
@@ -241,8 +241,8 @@ private fun Router(state: AppState) {
 			onBack = state::back,
 			// Replaces rather than pushes, so reading ten chapters does not leave ten
 			// reader entries to back out through.
-			onChapterChange = { index ->
-				state.replace(screen.copy(chapterIndex = index, initialPage = 0))
+			onChapterChange = { index, page ->
+				state.replace(screen.copy(chapterIndex = index, initialPage = page))
 			},
 		)
 	}

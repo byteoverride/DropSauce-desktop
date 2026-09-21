@@ -44,7 +44,7 @@ natively JVM, and the Android app keeps the two that are not.
 Every row was verified by running the command, not by inspection. The
 Android gate is re-run before each commit.
 
-**Current state:** `:app:assembleDebug` green, **201 tests** passing
+**Current state:** `:app:assembleDebug` green, **497 tests** passing
 across `:shared` and `:desktop`, `.deb` built and installed to
 `/opt/dropsauce` running on its own bundled JRE.
 
@@ -54,8 +54,9 @@ Nav rail with 12 destinations. Library with categories (create, rename,
 delete, multi-category membership) and a chapter-count filter. Source
 catalogue of 890 usable sources with an adult filter. Per-source browse
 and search. Details with chapters, save-to-category, Continue/Start
-over. Reader with paged LTR/RTL and webtoon, zoom and pan, keyboard
-navigation. History with progress. Settings, everything in it wired to
+over. Webtoon reader, zoom and pan, keyboard navigation, and one
+continuous strip that carries on across chapter boundaries (D22, D23).
+History with progress. Settings, everything in it wired to
 real behaviour. Local import, downloads, bookmarks, statistics, backup
 and restore, chapter tracking, source migration.
 
@@ -363,12 +364,13 @@ addressing is `okhttp3.HttpUrl`.
 platform types) and the existing coupling is shallow enough to make it
 cheap - 26 `Context` and 7 `Uri` imports across all of `data/` + `domain/`.
 
-### D10. Reader: Compose, three modes, tiled decode via ImageIO
+### D10. Reader: Compose, tiled decode via ImageIO
 
-**Revised after Phase 1 Agent C. The original version of this decision
-was wrong and is not preserved above; this is what replaced it.**
+**Revised twice. Phase 1 Agent C corrected the tiling premise; D22 then
+cut every mode but webtoon. Neither superseded version is preserved
+above; this is what stands.**
 
-v1 ships **paged LTR**, **paged RTL**, **vertical** and **webtoon**.
+v1 ships **webtoon** only (D22).
 Zoom and pan is a hand-written `Modifier.graphicsLayer` + `pointerInput`
 transform. Full-image decode is Skia via Skiko. Region decode is
 `javax.imageio.ImageReadParam.setSourceRegion`.
@@ -399,10 +401,9 @@ therefore needs either full-image Skia decode with downsampling (the
 original fallback, now the exception rather than the rule) or a WebP
 ImageIO plugin. Resolving this is the first task of the reader work.
 
-**Also adopted from Agent C:** vertical mode is in v1 because
-`VerticalReaderFragment.kt` is 16 lines, two overrides on the shared
-pager. Webtoon alone is 1242 lines across 8 files. Adding vertical is
-nearly free; it was cut for no reason.
+**On the modes.** Agent C argued vertical mode was nearly free at 16
+lines against webtoon's 1242, and it was, but D22 removed it along with
+the paged modes anyway: cheap to build is not the same as wanted.
 
 ### D11. Background work is coroutines, not a scheduler
 
@@ -570,6 +571,53 @@ anything is written, the single-chapter reading stays available as an
 explicit option wherever it is representable, and it remains the only
 option when detection is ambiguous.
 
+### D22. The desktop reader is webtoon only
+
+Paged left-to-right, paged right-to-left and vertical are gone from the
+desktop UI, on your instruction. Webtoon is the only mode the reader
+offers and the only one the settings screen exposes.
+
+`ReadingMode` itself stays in `:shared`. It is the `manga_prefs.reading_mode`
+column and it is in the backup format, so deleting the enum would either
+break restore from an Android backup or silently drop a column the phone
+still reads. The desktop simply never writes anything but `Webtoon`.
+
+### D23. Chapters are one continuous strip, not one screen each
+
+Reaching the end of a chapter used to replace the reader screen with a
+new one for the next chapter. That is a visible break, and you asked for
+chapters one and two to run together without noticing the change.
+
+The reader therefore holds a flat list of pages that spans chapters. Each
+entry carries the chapter it came from, so "the current chapter" is a
+property of the page under the scroll position rather than an argument
+the screen was opened with. Three pages before the end of what is loaded,
+the next chapter is fetched and appended. Appending to the end of a
+`LazyColumn` does not move the scroll position, which is what makes the
+join invisible.
+
+Consequences worth knowing:
+
+- Progress, the bookmark button and the title in the bar all read from
+  the page in view, so they follow the reader across a join. Resuming
+  from History lands in the chapter you actually stopped in.
+- A chapter that fails to load is reported **under** the strip, not in
+  place of it. Replacing the screen with an error would throw away the
+  position in the pages already being read.
+- The `LazyColumn` uses default index keys, not page ids. The strip only
+  grows at the end, so indices are stable anyway, and page ids are not
+  unique: sources reuse one image URL across chapters, and a duplicate
+  key is a crash rather than a glitch.
+- Stepping back above the first loaded page still swaps the screen, since
+  nothing is prepended. It opens the previous chapter at its **last**
+  page (`LAST_PAGE`), so reading backwards over that join lands where the
+  story continues.
+
+Verified live on MangaDex: the join fired at strip index 7 of a 10-page
+chapter, appended 18 pages, and the bar went from "prologue 10 / 10" to
+"Prólogo 1 / 18" with no screen change; History then resumed at the
+second chapter.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:
@@ -635,8 +683,8 @@ deciding before the catalogue UI is designed, not after.
 - Per-source list browsing with sort orders and filters
 - Search within a source
 - Manga details: cover, description, tags, chapter list
-- Read a chapter: paged LTR, paged RTL, vertical and webtoon, zoom and
-  pan, keyboard and mouse navigation (vertical added per D10)
+- Read a chapter: webtoon, zoom and pan, keyboard and mouse navigation,
+  continuous across chapters (D22, D23)
 - Library: favourites with categories, reading history, resume where you
   left off
 - Local persistence in SQLite that survives restart

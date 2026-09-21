@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
@@ -62,9 +63,11 @@ import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import org.koitharu.kotatsu.core.util.ext.DebugFlags
 import org.koitharu.kotatsu.core.util.ext.printStackTraceDebug
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -92,44 +95,87 @@ fun ReaderScreen(
 	chapterIndex: Int,
 	initialPage: Int,
 	onBack: () -> Unit,
-	onChapterChange: (Int) -> Unit,
+	onChapterChange: (chapterIndex: Int, page: Int) -> Unit,
 ) {
-	val chapter = chapters[chapterIndex]
-	val pages = remember(chapter.id) { mutableStateListOf<MangaPage>() }
-	var loading by remember(chapter.id) { mutableStateOf(true) }
-	var error: String? by remember(chapter.id) { mutableStateOf(null) }
-	var attempt by remember(chapter.id) { mutableStateOf(0) }
+	// One continuous strip across chapter boundaries. The reader asked for chapter two
+	// to flow out of chapter one without a visible break, so the unit of loading is no
+	// longer "the chapter being viewed": pages from several chapters live in one list
+	// and the chapter is a property of the page you happen to be looking at.
+	val strip = remember(chapterIndex) { mutableStateListOf<StripPage>() }
+	var loadedThrough by remember(chapterIndex) { mutableStateOf(chapterIndex - 1) }
+	var loading by remember(chapterIndex) { mutableStateOf(true) }
+	var appending by remember(chapterIndex) { mutableStateOf(false) }
+	var error: String? by remember(chapterIndex) { mutableStateOf(null) }
+	// A chapter that failed to join on the end is reported under the strip, not in place
+	// of it. Replacing the screen with an error would throw away the reader's position in
+	// the pages they were happily reading, for a failure in a chapter they cannot see yet.
+	var appendError: String? by remember(chapterIndex) { mutableStateOf(null) }
+	var attempt by remember(chapterIndex) { mutableStateOf(0) }
+
 	// The scroll position IS the current page. It used to be a separate counter that
-	// only next() and previous() moved, so scrolling a continuous strip never changed
-	// it: the page readout, the recorded history and the resume point all stayed on
-	// page one no matter how far you read.
-	val listState = remember(chapter.id) { LazyListState() }
-	val index by remember(chapter.id) { derivedStateOf { listState.firstVisibleItemIndex } }
-	var appliedInitial by remember(chapter.id) { mutableStateOf(false) }
+	// only next() and previous() moved, so scrolling never changed it and the readout,
+	// the history and the resume point all stayed on page one.
+	val listState = remember(chapterIndex) { LazyListState() }
+	val index by remember(chapterIndex) { derivedStateOf { listState.firstVisibleItemIndex } }
+	var appliedInitial by remember(chapterIndex) { mutableStateOf(false) }
 	val zoom = remember { ZoomState() }
 	val settings by state.settings.data.collectAsState()
 
-	LaunchedEffect(chapter.id, attempt) {
+	val current = strip.getOrNull(index.coerceIn(0, (strip.size - 1).coerceAtLeast(0)))
+	val chapter = current?.chapter ?: chapters[chapterIndex]
+	val currentChapterIndex = current?.chapterIndex ?: chapterIndex
+
+	suspend fun append(at: Int): Boolean {
+		val target = chapters.getOrNull(at) ?: return false
+		appendError = null
+		val loaded = runCatching { pageSource.pages(target) }.getOrElse {
+			val message = it.message ?: it::class.simpleName ?: "Request failed"
+			if (strip.isEmpty()) error = message else appendError = message
+			return false
+		}
+		strip.addAll(
+			loaded.mapIndexed { i, page ->
+				StripPage(at, target, page, i, loaded.size)
+			},
+		)
+		loadedThrough = at
+		if (DebugFlags.isDebug) {
+			println("[strip] joined chapter $at (${target.name}): +${loaded.size} pages, strip=${strip.size}")
+		}
+		return true
+	}
+
+	LaunchedEffect(chapterIndex, attempt) {
 		loading = true
 		error = null
-		pages.clear()
-		runCatching { pageSource.pages(chapter) }
-			.onSuccess { pages.addAll(it) }
-			.onFailure { error = it.message ?: it::class.simpleName ?: "Request failed" }
+		strip.clear()
+		loadedThrough = chapterIndex - 1
+		append(chapterIndex)
 		loading = false
+	}
+
+	// Pull the next chapter in before the reader reaches the end, so the join is not a
+	// pause. Appending to the end of a LazyColumn does not disturb the scroll position,
+	// which is what makes the transition invisible.
+	LaunchedEffect(chapterIndex, index, strip.size, loadedThrough) {
+		if (loading || appending || strip.isEmpty()) return@LaunchedEffect
+		if (loadedThrough >= chapters.lastIndex) return@LaunchedEffect
+		if (index < strip.size - CHAPTER_PREFETCH_PAGES) return@LaunchedEffect
+		appending = true
+		append(loadedThrough + 1)
+		appending = false
 	}
 
 	// Restoring the reading position has to happen AFTER the list exists. scrollToItem
 	// suspends until the list is laid out, so calling it while `loading` is still true
 	// waits for a LazyColumn that is not composed yet and never will be: the load
-	// effect deadlocks and the reader stays blank. Hence a separate effect, keyed on
-	// the pages actually being there.
-	LaunchedEffect(chapter.id, pages.size) {
-		if (pages.isEmpty() || appliedInitial) return@LaunchedEffect
+	// effect deadlocks and the reader stays blank.
+	LaunchedEffect(chapterIndex, strip.size) {
+		if (strip.isEmpty() || appliedInitial) return@LaunchedEffect
 		appliedInitial = true
-		// Clamped: a source can return fewer pages than when the position was recorded,
-		// and opening past the end would show nothing.
-		val target = initialPage.coerceIn(0, pages.lastIndex)
+		// LAST_PAGE means "wherever the end is", which the caller cannot know: it is
+		// stepping back into a chapter whose length nobody has fetched yet.
+		val target = if (initialPage == LAST_PAGE) strip.lastIndex else initialPage.coerceIn(0, strip.lastIndex)
 		if (target > 0) listState.scrollToItem(target)
 	}
 
@@ -138,38 +184,38 @@ fun ReaderScreen(
 	val scroller = rememberCoroutineScope()
 
 	fun next() {
-		when {
-			index < pages.lastIndex -> scroller.launch { listState.animateScrollToItem(index + 1) }
-			chapterIndex < chapters.lastIndex -> onChapterChange(chapterIndex + 1)
-		}
+		if (index < strip.lastIndex) scroller.launch { listState.animateScrollToItem(index + 1) }
 	}
 
 	fun previous() {
 		when {
 			index > 0 -> scroller.launch { listState.animateScrollToItem(index - 1) }
-			chapterIndex > 0 -> onChapterChange(chapterIndex - 1)
+			// Nothing above the strip's first page, so stepping back before it is the
+			// one case that still swaps the screen out for an earlier chapter. It opens
+			// at that chapter's end rather than its start, so reading backwards over the
+			// join lands where the text continues instead of jumping a chapter back.
+			chapterIndex > 0 -> onChapterChange(chapterIndex - 1, LAST_PAGE)
 		}
 	}
 
-	// Record progress whenever the page or chapter changes. Runs on the app scope rather
-	// than the composition's, so leaving the reader mid-write does not cancel it.
-	LaunchedEffect(chapter.id, index, pages.size) {
-		if (pages.isEmpty()) return@LaunchedEffect
-		// Settle before writing. Now that the page comes from the scroll position this
-		// effect restarts on every page that passes, and a flick through twenty pages
-		// would otherwise be twenty database writes. Restarting cancels the pending
-		// delay, so only the position the reader stops on is recorded.
+	// Record progress against the chapter the reader is actually in, which after a
+	// transition is not the one the screen was opened on.
+	LaunchedEffect(current?.chapter?.id, current?.pageInChapter) {
+		val position = current ?: return@LaunchedEffect
+		// Settle before writing. The page comes from the scroll position, so this
+		// effect restarts on every page that passes and a flick through twenty pages
+		// would otherwise be twenty database writes.
 		delay(PROGRESS_SETTLE_MS)
-		val chapterProgress = (index + 1).toFloat() / pages.size
-		val percent = ((chapterIndex + chapterProgress) / chapters.size).coerceIn(0f, 1f)
+		val within = (position.pageInChapter + 1).toFloat() / position.chapterPageCount
+		val percent = ((position.chapterIndex + within) / chapters.size).coerceIn(0f, 1f)
 		state.scope.launch {
 			// Incognito is checked here rather than inside recordProgress so the reader
 			// is the thing that decides, and so a caller cannot forget by not asking.
 			if (!state.incognito.shouldRecordHistory(manga.id)) return@launch
 			state.library.recordProgress(
 				manga = manga,
-				chapterId = chapter.id,
-				page = index,
+				chapterId = position.chapter.id,
+				page = position.pageInChapter,
 				chaptersCount = chapters.size,
 				percent = percent,
 			)
@@ -180,14 +226,14 @@ fun ReaderScreen(
 	// progress as an absolute chapter count, so a page-level push would be noise.
 	// Incognito suppresses this too, since a tracker is a more public record than
 	// local history.
-	LaunchedEffect(chapter.id) {
+	LaunchedEffect(currentChapterIndex) {
 		if (!state.incognito.shouldRecordHistory(manga.id)) return@LaunchedEffect
 		runCatching { state.tracking.pushProgress(manga.id, chapters, chapter.id) }
 			.onFailure { it.printStackTraceDebug() }
 	}
 
 	val focus = remember { FocusRequester() }
-	LaunchedEffect(chapter.id) { focus.requestFocus() }
+	LaunchedEffect(chapterIndex) { focus.requestFocus() }
 
 	Column(
 		modifier = Modifier
@@ -232,23 +278,25 @@ fun ReaderScreen(
 			manga = manga,
 			sourceLabel = sourceLabel,
 			chapter = chapter,
-			index = index,
-			total = pages.size,
+			index = current?.pageInChapter ?: 0,
+			total = current?.chapterPageCount ?: 0,
 			onBack = onBack,
 			bookmark = {
-				val current = pages.getOrNull(index)
-				if (current != null) {
+				val position = current
+				if (position != null) {
 					BookmarkToggle(
 						repository = state.bookmarks,
 						manga = manga,
-						chapterId = chapter.id,
-						pageId = current.id,
-						page = index,
-						imageUrl = current.preview ?: current.url,
+						chapterId = position.chapter.id,
+						pageId = position.page.id,
+						page = position.pageInChapter,
+						imageUrl = position.page.preview ?: position.page.url,
 						percent = if (chapters.isEmpty()) {
 							0f
 						} else {
-							(chapterIndex + (index + 1f) / pages.size.coerceAtLeast(1)) / chapters.size
+							val within = (position.pageInChapter + 1f) /
+								position.chapterPageCount.coerceAtLeast(1)
+							(position.chapterIndex + within) / chapters.size
 						},
 					)
 				}
@@ -261,19 +309,30 @@ fun ReaderScreen(
 		when {
 			loading -> LoadingBox()
 			error != null -> ErrorBox("Could not load pages.\n$error", onRetry = { attempt++ })
-			pages.isEmpty() -> ErrorBox("This chapter has no pages.", onRetry = { attempt++ })
+			strip.isEmpty() -> ErrorBox("This chapter has no pages.", onRetry = { attempt++ })
 			else -> WebtoonStrip(
 				pageSource = pageSource,
-				pages = pages,
+				pages = strip,
 				zoom = zoom,
 				widthPercent = settings.webtoonWidthPercent,
 				listState = listState,
+				footer = {
+					// Only ever visible at the true end of what is loaded. Mid-strip
+					// chapter joins are deliberately unmarked: the request was to not
+					// notice them.
+					StripFooter(
+						appending = appending,
+						error = appendError,
+						hasMore = loadedThrough < chapters.lastIndex,
+						onRetry = { appendError = null },
+					)
+				},
 			)
 		}
 		}
 		ReaderStatusBar(
-			index = index,
-			total = pages.size,
+			index = current?.pageInChapter ?: 0,
+			total = current?.chapterPageCount ?: 0,
 			widthPercent = settings.webtoonWidthPercent,
 			zoom = zoom,
 			onWidthPercent = { value ->
@@ -410,10 +469,11 @@ private fun Modifier.pinchAndPan(zoom: ZoomState, key: Any?): Modifier =
 @Composable
 private fun WebtoonStrip(
 	pageSource: ReaderPageSource,
-	pages: List<MangaPage>,
+	pages: List<StripPage>,
 	zoom: ZoomState,
 	widthPercent: Int,
 	listState: LazyListState,
+	footer: @Composable () -> Unit,
 ) {
 	Box(
 		modifier = Modifier
@@ -448,14 +508,19 @@ private fun WebtoonStrip(
 				transformOrigin = TransformOrigin(0.5f, 0f)
 				},
 		) {
+			// No custom key on purpose. The strip only ever grows at the end, so the
+			// default index key is already stable for everything on screen, and a page
+			// id is not: sources do reuse one image URL across chapters, and a repeated
+			// key in a LazyColumn is a crash rather than a glitch.
 			items(pages.size) { i ->
 				PageImage(
-					page = pages[i],
+					page = pages[i].page,
 					pageSource = pageSource,
 					contentScale = ContentScale.FillWidth,
 					modifier = Modifier.fillMaxWidth(),
 				)
 			}
+			item(key = "footer") { footer() }
 		}
 	}
 }
@@ -593,5 +658,75 @@ private fun ReaderStatusBar(
 		TextButton(onClick = { zoom.reset() }, modifier = Modifier.widthIn(min = 76.dp)) {
 			Text("${(zoom.scale * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
 		}
+	}
+}
+
+/**
+ * A page in the continuous strip, carrying the chapter it came from.
+ *
+ * The chapter has to travel with the page because the strip spans several of them: the
+ * reader's current chapter is whichever one the visible page belongs to, not the one
+ * the screen was opened on.
+ */
+private data class StripPage(
+	val chapterIndex: Int,
+	val chapter: MangaChapter,
+	val page: MangaPage,
+	val pageInChapter: Int,
+	val chapterPageCount: Int,
+)
+
+/**
+ * How close to the end of the loaded strip to get before pulling the next chapter in.
+ *
+ * Far enough ahead that the fetch finishes before the reader arrives, which is the
+ * whole point: a join the reader waits at is a join they notice.
+ */
+private const val CHAPTER_PREFETCH_PAGES = 3
+
+/** Passed as the initial page to mean "open at the last page", whatever its number is. */
+const val LAST_PAGE = -1
+
+/**
+ * What sits under the last loaded page.
+ *
+ * Nothing is drawn between chapters, only after the last one that has been fetched, so in
+ * normal reading this is off-screen ahead of the reader and never seen.
+ */
+@Composable
+private fun StripFooter(
+	appending: Boolean,
+	error: String?,
+	hasMore: Boolean,
+	onRetry: () -> Unit,
+) {
+	when {
+		error != null -> Column(
+			modifier = Modifier.fillMaxWidth().padding(24.dp),
+			horizontalAlignment = Alignment.CenterHorizontally,
+			verticalArrangement = Arrangement.spacedBy(8.dp),
+		) {
+			Text(
+				text = "Could not load the next chapter.\n$error",
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			TextButton(onClick = onRetry) { Text("Try again") }
+		}
+
+		appending -> Box(
+			modifier = Modifier.fillMaxWidth().padding(24.dp),
+			contentAlignment = Alignment.Center,
+		) {
+			CircularProgressIndicator(strokeWidth = 2.dp)
+		}
+
+		!hasMore -> Text(
+			text = "You are at the end of this title.",
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.fillMaxWidth().padding(24.dp),
+			textAlign = TextAlign.Center,
+		)
 	}
 }

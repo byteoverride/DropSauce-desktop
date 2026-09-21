@@ -28,7 +28,6 @@ import kotlinx.coroutines.launch
 import org.koitharu.kotatsu.desktop.feature.Feature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
-import org.koitharu.kotatsu.shared.settings.ReadingMode
 
 /**
  * Reader behaviour that is configured outside the reader.
