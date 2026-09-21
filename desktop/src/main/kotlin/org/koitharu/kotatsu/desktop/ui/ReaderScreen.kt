@@ -41,6 +41,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -65,6 +66,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import org.koitharu.kotatsu.core.util.ext.DebugFlags
@@ -110,6 +112,7 @@ fun ReaderScreen(
 	// of it. Replacing the screen with an error would throw away the reader's position in
 	// the pages they were happily reading, for a failure in a chapter they cannot see yet.
 	var appendError: String? by remember(chapterIndex) { mutableStateOf(null) }
+	var appendAttempt by remember(chapterIndex) { mutableStateOf(0) }
 	var attempt by remember(chapterIndex) { mutableStateOf(0) }
 
 	// The scroll position IS the current page. It used to be a separate counter that
@@ -128,8 +131,15 @@ fun ReaderScreen(
 	suspend fun append(at: Int): Boolean {
 		val target = chapters.getOrNull(at) ?: return false
 		appendError = null
-		val loaded = runCatching { pageSource.pages(target) }.getOrElse {
-			val message = it.message ?: it::class.simpleName ?: "Request failed"
+		// Cancellation is not a load failure and must not be reported as one. It means
+		// the reader closed or moved on, and catching it here put "the coroutine scope
+		// left the composition" under the strip as though the source had refused.
+		val loaded = try {
+			pageSource.pages(target)
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			val message = e.message ?: e::class.simpleName ?: "Request failed"
 			if (strip.isEmpty()) error = message else appendError = message
 			return false
 		}
@@ -157,13 +167,26 @@ fun ReaderScreen(
 	// Pull the next chapter in before the reader reaches the end, so the join is not a
 	// pause. Appending to the end of a LazyColumn does not disturb the scroll position,
 	// which is what makes the transition invisible.
-	LaunchedEffect(chapterIndex, index, strip.size, loadedThrough) {
-		if (loading || appending || strip.isEmpty()) return@LaunchedEffect
-		if (loadedThrough >= chapters.lastIndex) return@LaunchedEffect
-		if (index < strip.size - CHAPTER_PREFETCH_PAGES) return@LaunchedEffect
-		appending = true
-		append(loadedThrough + 1)
-		appending = false
+	//
+	// The scroll position is watched through a snapshot flow instead of being an effect
+	// key. As a key it restarted the effect on every page that went past, which cancelled
+	// the fetch that was in flight: scrolling steadily towards the end of a chapter, the
+	// exact thing this exists for, could never finish loading the next one. A flow
+	// collector keeps one coroutine and simply sees the latest values when it comes back
+	// round, so a fetch always runs to completion.
+	LaunchedEffect(chapterIndex) {
+		snapshotFlow { StripDemand(index, strip.size, loadedThrough, appendAttempt) }
+			.collect { demand ->
+				if (demand.loaded == 0) return@collect
+				if (demand.through >= chapters.lastIndex) return@collect
+				if (demand.index < demand.loaded - CHAPTER_PREFETCH_PAGES) return@collect
+				// A chapter that failed stays failed until the reader asks again, rather
+				// than being retried on every page that scrolls past.
+				if (appendError != null) return@collect
+				appending = true
+				append(demand.through + 1)
+				appending = false
+			}
 	}
 
 	// Restoring the reading position has to happen AFTER the list exists. scrollToItem
@@ -324,7 +347,12 @@ fun ReaderScreen(
 						appending = appending,
 						error = appendError,
 						hasMore = loadedThrough < chapters.lastIndex,
-						onRetry = { appendError = null },
+						// Bumping the attempt is what re-triggers the watcher; clearing
+						// the error alone changes nothing it looks at.
+						onRetry = {
+							appendError = null
+							appendAttempt++
+						},
 					)
 				},
 			)
@@ -660,6 +688,20 @@ private fun ReaderStatusBar(
 		}
 	}
 }
+
+/**
+ * What the chapter watcher looks at: where the reader is, how much is loaded, and whether
+ * a retry has been asked for.
+ *
+ * A value class rather than four separate flows so the collector wakes once per change
+ * and sees a consistent set, and so equality drops the repeats.
+ */
+private data class StripDemand(
+	val index: Int,
+	val loaded: Int,
+	val through: Int,
+	val attempt: Int,
+)
 
 /**
  * A page in the continuous strip, carrying the chapter it came from.

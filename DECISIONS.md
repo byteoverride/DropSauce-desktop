@@ -613,10 +613,27 @@ Consequences worth knowing:
   page (`LAST_PAGE`), so reading backwards over that join lands where the
   story continues.
 
-Verified live on MangaDex: the join fired at strip index 7 of a 10-page
-chapter, appended 18 pages, and the bar went from "prologue 10 / 10" to
-"Prólogo 1 / 18" with no screen change; History then resumed at the
-second chapter.
+**The watcher is a snapshot flow, not an effect key.** The first version
+keyed the prefetch `LaunchedEffect` on the scroll position, which meant
+every page that scrolled past restarted it and cancelled the fetch in
+flight. Scrolling steadily towards the end of a chapter, the exact motion
+this feature exists for, could therefore never finish loading the next
+one, and `runCatching` turned the cancellation into "could not load the
+next chapter: the coroutine scope left the composition" under the strip.
+Two rules came out of it: the watcher keeps one coroutine and reads the
+position through `snapshotFlow`, and `CancellationException` is rethrown
+rather than reported.
+
+**How this was caught.** The first verification pressed a key and waited
+for the fetch each time, so it never overlapped a fetch with a scroll and
+passed on a build that was broken in ordinary use. Driving the same UI
+with keys 250ms apart reproduced the failure immediately. A reader
+feature has to be tested at reading speed.
+
+Verified live on MangaDex, scrolling continuously: chapter 0 (10 pages)
+joined chapter 1 (+18) and then chapter 2 (+16), strip 44 pages, the bar
+moving "prologue 10 / 10" -> "Prólogo 1 / 18" -> "Prólogo 18 / 18" with
+no screen change; History resumed at the second chapter.
 
 ### D16. No new dependency is added without appearing in this file first
 
