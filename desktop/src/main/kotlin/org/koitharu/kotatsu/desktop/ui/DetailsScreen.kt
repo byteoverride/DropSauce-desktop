@@ -1,6 +1,8 @@
 package org.koitharu.kotatsu.desktop.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -98,29 +100,38 @@ fun DetailsScreen(
 			title = manga.title,
 			subtitle = source.title,
 			onBack = onBack,
-			trailing = {
-				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-					OutlinedButton(onClick = { choosingCategories = true }) {
-						Text(if (savedIn.isEmpty()) "Add to library" else "In library (${savedIn.size})")
-					}
-					if (chapters.isNotEmpty()) {
-						// Resume only when the recorded chapter is still in the list; a
-						// source can renumber or drop chapters between visits.
-						val resumeIndex = history?.let { h ->
-							chapters.indexOfFirst { it.id == h.chapterId }.takeIf { it >= 0 }
-						}
-						if (resumeIndex != null) {
-							Button(onClick = { onRead(chapters, resumeIndex, history?.page ?: 0) }) {
-								Text("Continue")
-							}
-							OutlinedButton(onClick = { onRead(chapters, 0, 0) }) { Text("Start over") }
-						} else {
-							Button(onClick = { onRead(chapters, 0, 0) }) { Text("Read") }
-						}
-					}
-				}
-			},
 		)
+		// Actions live on their own row rather than in the top bar. In the bar they
+		// competed with the title for width, and at a larger interface scale in a
+		// narrow window they lost and vanished entirely, which left no way to reach
+		// Continue or Add to library at all.
+		Row(
+			modifier = Modifier
+				.fillMaxWidth()
+				.horizontalScroll(rememberScrollState())
+				.padding(horizontal = 20.dp, vertical = 4.dp),
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			if (chapters.isNotEmpty()) {
+				// Resume only when the recorded chapter is still in the list; a source
+				// can renumber or drop chapters between visits.
+				val resumeIndex = history?.let { h ->
+					chapters.indexOfFirst { it.id == h.chapterId }.takeIf { it >= 0 }
+				}
+				if (resumeIndex != null) {
+					Button(onClick = { onRead(chapters, resumeIndex, history?.page ?: 0) }) {
+						Text("Continue")
+					}
+					OutlinedButton(onClick = { onRead(chapters, 0, 0) }) { Text("Start over") }
+				} else {
+					Button(onClick = { onRead(chapters, 0, 0) }) { Text("Read") }
+				}
+			}
+			OutlinedButton(onClick = { choosingCategories = true }) {
+				Text(if (savedIn.isEmpty()) "Add to library" else "In library (${savedIn.size})")
+			}
+		}
 		when {
 			loading && chapters.isEmpty() -> LoadingBox()
 			error != null && chapters.isEmpty() -> ErrorBox(

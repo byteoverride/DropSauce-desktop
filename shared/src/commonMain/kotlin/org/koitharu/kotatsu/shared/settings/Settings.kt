@@ -11,6 +11,15 @@ enum class ThemeMode { System, Light, Dark }
 enum class ReadingMode { PagedLtr, PagedRtl, Webtoon }
 
 /**
+ * How a page is scaled to the window in the paged modes.
+ *
+ * [FitPage] shows the whole page, which on a tall page in a wide window leaves it small.
+ * [FitWidth] fills the width and lets the page run off the bottom, which is what most
+ * readers actually want on a large display.
+ */
+enum class PageFit { FitPage, FitWidth, FitHeight, Original }
+
+/**
  * Everything the desktop app remembers between runs, other than the library.
  *
  * Deliberately a small, flat, explicitly-defaulted record rather than a port of the
@@ -35,6 +44,17 @@ data class SettingsData(
 	 * distinguishes "large display" from "high density display" on X11.
 	 */
 	@SerialName("ui_scale") val uiScale: Float = 1.5f,
+	/**
+	 * How wide a webtoon strip is drawn, as a percentage of the window.
+	 *
+	 * Webtoon pages are tall and narrow, so filling the window width on a wide display
+	 * makes every panel enormous and forces the reader to scroll far more than they
+	 * should. 60 is a readable default on a full-width window; a narrow window can be
+	 * put back to 100.
+	 */
+	@SerialName("webtoon_width_percent") val webtoonWidthPercent: Int = 60,
+	/** How a single page is sized in the paged modes. */
+	@SerialName("page_fit") val pageFit: PageFit = PageFit.FitPage,
 	/**
 	 * Hide adult sources from the catalogue.
 	 *

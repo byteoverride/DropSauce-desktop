@@ -9,6 +9,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -16,10 +21,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -58,6 +67,7 @@ import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaPage
 import org.koitharu.kotatsu.desktop.feature.reading.BookmarkToggle
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
+import org.koitharu.kotatsu.shared.settings.PageFit
 import org.koitharu.kotatsu.shared.settings.ReadingMode
 
 /** Reading direction. Webtoon is one continuous vertical strip; the others are paged. */
@@ -101,6 +111,7 @@ fun ReaderScreen(
 		state.titlePrefs.find(manga.id)?.readingMode?.let { mode = it.toReaderMode() }
 	}
 	val zoom = remember { ZoomState() }
+	val settings by state.settings.data.collectAsState()
 
 	LaunchedEffect(chapter.id, attempt) {
 		loading = true
@@ -234,9 +245,35 @@ fun ReaderScreen(
 			loading -> LoadingBox()
 			error != null -> ErrorBox("Could not load pages.\n$error", onRetry = { attempt++ })
 			pages.isEmpty() -> ErrorBox("This chapter has no pages.", onRetry = { attempt++ })
-			mode == ReaderMode.WEBTOON -> WebtoonStrip(pageSource, pages, zoom)
-			else -> PagedView(pageSource, pages, index, zoom)
+			mode == ReaderMode.WEBTOON -> WebtoonStrip(
+				pageSource = pageSource,
+				pages = pages,
+				zoom = zoom,
+				widthPercent = settings.webtoonWidthPercent,
+			)
+
+			else -> PagedView(
+				pageSource = pageSource,
+				pages = pages,
+				index = index,
+				zoom = zoom,
+				fit = settings.pageFit,
+			)
 		}
+		ReaderStatusBar(
+			mode = mode,
+			index = index,
+			total = pages.size,
+			widthPercent = settings.webtoonWidthPercent,
+			fit = settings.pageFit,
+			zoom = zoom,
+			onWidthPercent = { value ->
+				state.scope.launch { state.settings.update { it.copy(webtoonWidthPercent = value) } }
+			},
+			onFit = { value ->
+				state.scope.launch { state.settings.update { it.copy(pageFit = value) } }
+			},
+		)
 	}
 }
 
@@ -319,6 +356,17 @@ class ZoomState {
 
 	val isZoomed: Boolean get() = scale > MIN_SCALE + 0.001f
 
+	/** Absolute set, for a slider that reports a position rather than a delta. */
+	fun zoomTo(value: Float) {
+		val next = value.coerceIn(MIN_SCALE, MAX_SCALE)
+		if (next == scale) return
+		scale = next
+		if (!isZoomed) {
+			offsetX = 0f
+			offsetY = 0f
+		}
+	}
+
 	fun zoomBy(factor: Float) {
 		val next = (scale * factor).coerceIn(MIN_SCALE, MAX_SCALE)
 		if (next == scale) return
@@ -375,6 +423,7 @@ private fun PagedView(
 	pages: List<MangaPage>,
 	index: Int,
 	zoom: ZoomState,
+	fit: PageFit,
 ) {
 	Box(
 		modifier = Modifier
@@ -386,7 +435,14 @@ private fun PagedView(
 		PageImage(
 			page = pages[index],
 			pageSource = pageSource,
-			contentScale = ContentScale.Fit,
+			contentScale = when (fit) {
+				// Inside is Fit that refuses to enlarge, which is what "original" means
+				// for a page smaller than the window.
+				PageFit.FitPage -> ContentScale.Fit
+				PageFit.FitWidth -> ContentScale.FillWidth
+				PageFit.FitHeight -> ContentScale.FillHeight
+				PageFit.Original -> ContentScale.Inside
+			},
 			modifier = Modifier.fillMaxSize().graphicsLayer {
 				scaleX = zoom.scale
 				scaleY = zoom.scale
@@ -403,6 +459,7 @@ private fun WebtoonStrip(
 	pageSource: ReaderPageSource,
 	pages: List<MangaPage>,
 	zoom: ZoomState,
+	widthPercent: Int,
 ) {
 	val listState = rememberLazyListState()
 	Box(
@@ -421,14 +478,22 @@ private fun WebtoonStrip(
 	) {
 		LazyColumn(
 			state = listState,
-			modifier = Modifier.fillMaxSize().graphicsLayer {
+			horizontalAlignment = Alignment.CenterHorizontally,
+			// The strip is narrowed here rather than by zooming out, so scroll distance
+			// shrinks with it. Zooming a full-width strip would leave the same very
+			// long page to scroll through, which is the actual complaint.
+			modifier = Modifier
+				.fillMaxHeight()
+				.fillMaxWidth(widthPercent.coerceIn(20, 100) / 100f)
+				.align(Alignment.TopCenter)
+				.graphicsLayer {
 				scaleX = zoom.scale
 				scaleY = zoom.scale
 				translationX = zoom.offsetX
 				// Scale from the top so zooming does not jump the reader's position down
 				// the strip, and from the centre horizontally so it grows evenly.
 				transformOrigin = TransformOrigin(0.5f, 0f)
-			},
+				},
 		) {
 			items(pages.size) { i ->
 				PageImage(
@@ -515,3 +580,99 @@ fun ReadingMode.toReaderMode(): ReaderMode = when (this) {
 	ReadingMode.PagedRtl -> ReaderMode.PAGED_RTL
 	ReadingMode.Webtoon -> ReaderMode.WEBTOON
 }
+
+
+/**
+ * The reader's status bar, modelled on the one in a PDF or document viewer.
+ *
+ * Zoom used to be reachable only by Ctrl plus wheel, which is invisible, and the
+ * underlying complaint was not really about zoom: webtoon pages were too large and
+ * paged pages too small because nothing let the reader choose how a page is fitted.
+ * So this carries both, in the place people already look for them, and the fit and
+ * width settings persist while the zoom slider stays per session as the ad-hoc
+ * adjustment on top.
+ */
+@Composable
+private fun ReaderStatusBar(
+	mode: ReaderMode,
+	index: Int,
+	total: Int,
+	widthPercent: Int,
+	fit: PageFit,
+	zoom: ZoomState,
+	onWidthPercent: (Int) -> Unit,
+	onFit: (PageFit) -> Unit,
+) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.background(Color(0xFF16141A))
+			.padding(horizontal = 12.dp, vertical = 6.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(10.dp),
+	) {
+		Text(
+			text = if (total == 0) "" else "Page ${index + 1} of $total",
+			style = MaterialTheme.typography.labelMedium,
+			color = Color.White.copy(alpha = 0.75f),
+		)
+		Spacer(Modifier.weight(1f))
+
+		if (mode == ReaderMode.WEBTOON) {
+			// Width, not zoom. Narrowing the strip also shortens how far there is to
+			// scroll, which zooming out does not, and that is the actual problem with a
+			// full-width webtoon on a wide display.
+			Text(
+				"Strip width",
+				style = MaterialTheme.typography.labelSmall,
+				color = Color.White.copy(alpha = 0.6f),
+			)
+			Slider(
+				value = widthPercent.toFloat(),
+				onValueChange = { onWidthPercent(it.toInt()) },
+				valueRange = 20f..100f,
+				modifier = Modifier.width(160.dp),
+			)
+			Text(
+				"$widthPercent%",
+				style = MaterialTheme.typography.labelMedium,
+				color = Color.White,
+				modifier = Modifier.widthIn(min = 48.dp),
+			)
+		} else {
+			for (option in PageFit.entries) {
+				TextButton(onClick = { onFit(option) }, enabled = option != fit) {
+					Text(
+						when (option) {
+							PageFit.FitPage -> "Fit page"
+							PageFit.FitWidth -> "Fit width"
+							PageFit.FitHeight -> "Fit height"
+							PageFit.Original -> "Actual size"
+						},
+						style = MaterialTheme.typography.labelSmall,
+					)
+				}
+			}
+		}
+
+		VerticalDivider(modifier = Modifier.height(20.dp))
+
+		TextButton(onClick = { zoom.zoomBy(1f / KEY_STEP) }) { Text("\u2212") }
+		Slider(
+			value = zoom.scale,
+			onValueChange = zoom::zoomTo,
+			valueRange = MIN_SCALE..MAX_SCALE,
+			modifier = Modifier.width(180.dp),
+		)
+		TextButton(onClick = { zoom.zoomBy(KEY_STEP) }) { Text("+") }
+		// Clicking the percentage resets, the way a document viewer's zoom readout does.
+		TextButton(onClick = { zoom.reset() }) {
+			Text(
+				"${(zoom.scale * 100).toInt()}%",
+				style = MaterialTheme.typography.labelMedium,
+			)
+		}
+	}
+}
+
+
