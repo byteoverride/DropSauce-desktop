@@ -7,6 +7,7 @@ import androidx.compose.ui.window.application
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okio.FileSystem
 import okio.Path
@@ -53,6 +54,11 @@ private class PreviewContext(root: Path) : FeatureContext {
 	override val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 	private val client = OkHttpClient()
 	override fun clientFor(source: MangaParserSource): OkHttpClient = client
+
+	override suspend fun details(source: MangaParserSource, manga: Manga): Manga =
+		withContext(Dispatchers.IO) { sources.session(source).parser.getDetails(manga) }
+
+	override fun visibleSources(): List<MangaParserSource> = SourceRegistry.usableSources
 }
 
 private object PreviewNavigator : FeatureNavigator {
