@@ -40,6 +40,24 @@ interface FeatureContext {
 
 	/** The HTTP client for [source], carrying that source's own request headers. */
 	fun clientFor(source: MangaParserSource): OkHttpClient
+
+	/**
+	 * Full details for [manga], including its chapter list.
+	 *
+	 * Added because four separate areas needed a chapter list and each reached through
+	 * `sources.session(source).parser`, which is `internal` and only resolves because
+	 * every feature currently lives in one module. Routing it through the contract means
+	 * that stops being load-bearing.
+	 */
+	suspend fun details(source: MangaParserSource, manga: Manga): Manga
+
+	/**
+	 * Sources the user has chosen to see, after the adult and hidden-term filters.
+	 *
+	 * On the contract because two areas re-derived this rule from `SettingsData`
+	 * independently, which is how a filter ends up disagreeing with itself.
+	 */
+	fun visibleSources(): List<MangaParserSource>
 }
 
 /**

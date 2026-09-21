@@ -65,7 +65,10 @@ class LibraryRepository(private val db: LibraryDatabase) {
 		val dao = db.favouritesDao()
 		val source = if (categoryId == null) dao.observeAll() else dao.observeByCategory(categoryId)
 		return source.map { rows ->
-			rows.map { LibraryItem(it.manga.toManga(), it.manga.source, it.manga.chaptersCount) }
+			// One card per title. The DAO now returns every category membership, so a
+			// title in three categories would otherwise appear three times in "All".
+			rows.distinctBy { it.manga.mangaId }
+				.map { LibraryItem(it.manga.toManga(), it.manga.source, it.manga.chaptersCount) }
 		}
 	}
 

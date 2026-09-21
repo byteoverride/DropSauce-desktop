@@ -19,8 +19,11 @@ import androidx.sqlite.execSQL
 		LocalMangaEntity::class,
 		StatsEntity::class,
 		TrackEntity::class,
+		MangaPrefsEntity::class,
+		ScrobblingEntity::class,
+		SuggestionEntity::class,
 	],
-	version = 3,
+	version = 4,
 	exportSchema = true,
 )
 @ConstructedBy(LibraryDatabaseConstructor::class)
@@ -43,6 +46,12 @@ abstract class LibraryDatabase : RoomDatabase() {
 	abstract fun statsDao(): StatsDao
 
 	abstract fun tracksDao(): TracksDao
+
+	abstract fun mangaPrefsDao(): MangaPrefsDao
+
+	abstract fun scrobblingDao(): ScrobblingDao
+
+	abstract fun suggestionsDao(): SuggestionsDao
 }
 
 @Suppress("KotlinNoActualForExpect", "NO_ACTUAL_FOR_EXPECT")
@@ -118,6 +127,33 @@ val Migration2To3: Migration = object : Migration(2, 3) {
 				"`last_error` TEXT, FOREIGN KEY(`manga_id`) REFERENCES `manga`(`manga_id`) " +
 				"ON UPDATE NO ACTION ON DELETE CASCADE )",
 		)
+	}
+}
+
+/** Adds per-title preferences, external service links and suggestions. */
+val Migration3To4: Migration = object : Migration(3, 4) {
+
+	override fun migrate(connection: SQLiteConnection) {
+		connection.execSQL(
+			"CREATE TABLE IF NOT EXISTS `manga_prefs` (`manga_id` INTEGER PRIMARY KEY NOT NULL, " +
+				"`reading_mode` TEXT, `title_override` TEXT, `cover_override` TEXT, " +
+				"`branch` TEXT, `incognito` INTEGER NOT NULL DEFAULT 0, " +
+				"FOREIGN KEY(`manga_id`) REFERENCES `manga`(`manga_id`) " +
+				"ON UPDATE NO ACTION ON DELETE CASCADE )",
+		)
+		connection.execSQL(
+			"CREATE TABLE IF NOT EXISTS `scrobbling` (`manga_id` INTEGER NOT NULL, " +
+				"`service` TEXT NOT NULL, `remote_id` INTEGER NOT NULL, " +
+				"`target_id` INTEGER NOT NULL, `status` TEXT, `chapter` INTEGER NOT NULL, " +
+				"`rating` REAL NOT NULL, `comment` TEXT, `updated_at` INTEGER NOT NULL, " +
+				"PRIMARY KEY(`manga_id`, `service`))",
+		)
+		connection.execSQL("CREATE INDEX IF NOT EXISTS `index_scrobbling_manga_id` ON `scrobbling` (`manga_id`)")
+		connection.execSQL(
+			"CREATE TABLE IF NOT EXISTS `suggestions` (`manga_id` INTEGER PRIMARY KEY NOT NULL, " +
+				"`relevance` REAL NOT NULL, `created_at` INTEGER NOT NULL, `reason` TEXT NOT NULL)",
+		)
+		connection.execSQL("CREATE INDEX IF NOT EXISTS `index_suggestions_relevance` ON `suggestions` (`relevance`)")
 	}
 }
 

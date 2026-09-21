@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import okio.FileSystem
 import org.koitharu.kotatsu.desktop.image.ImageCache
@@ -92,10 +93,21 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 
 	/** Sources the catalogue can offer, after the adult filter in settings. */
 	val visibleSources: List<MangaParserSource>
-		get() = if (settings.data.value.hideAdultSources) {
-			SourceRegistry.usableSources.filterNot { with(SourceRegistry) { it.isAdult() } }
-		} else {
-			SourceRegistry.usableSources
+		get() {
+			val current = settings.data.value
+			var list = SourceRegistry.usableSources
+			if (current.hideAdultSources) {
+				list = list.filterNot { with(SourceRegistry) { it.isAdult() } }
+			}
+			// hiddenSourceTerms was already in SettingsData but nothing honoured it, so
+			// the setting existed and did nothing.
+			val terms = current.hiddenSourceTerms.filter { it.isNotBlank() }
+			if (terms.isNotEmpty()) {
+				list = list.filterNot { source ->
+					terms.any { source.title.contains(it, ignoreCase = true) }
+				}
+			}
+			return list
 		}
 
 	val usableSourceCount: Int get() = SourceRegistry.usableSources.size
@@ -169,6 +181,11 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 		override val library get() = this@AppState.library
 		override val scope get() = this@AppState.scope
 		override fun clientFor(source: MangaParserSource) = this@AppState.sources.session(source).client
+
+		override suspend fun details(source: MangaParserSource, manga: Manga): Manga =
+			withContext(Dispatchers.IO) { sources.session(source).parser.getDetails(manga) }
+
+		override fun visibleSources(): List<MangaParserSource> = this@AppState.visibleSources
 	}
 
 	fun selectRoot(destination: Screen.Root) {

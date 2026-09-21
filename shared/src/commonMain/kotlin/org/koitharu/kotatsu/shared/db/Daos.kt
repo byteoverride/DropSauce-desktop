@@ -71,7 +71,15 @@ interface FavouritesDao {
 	)
 	fun observeByCategory(categoryId: Long): Flow<List<FavouriteWithManga>>
 
-	@Query("SELECT * FROM favourites WHERE deleted_at = 0 GROUP BY manga_id ORDER BY created_at DESC")
+	/**
+	 * Every favourite row, including a title that sits in several categories.
+	 *
+	 * Previously `GROUP BY manga_id`, which silently dropped the second and later rows
+	 * for such a title. That is wrong for backup, which must round-trip every
+	 * membership. Callers wanting one card per title de-duplicate in Kotlin, where the
+	 * intent is visible.
+	 */
+	@Query("SELECT * FROM favourites WHERE deleted_at = 0 ORDER BY created_at DESC")
 	fun observeAll(): Flow<List<FavouriteWithManga>>
 
 	@Query("SELECT category_id FROM favourites WHERE manga_id = :mangaId AND deleted_at = 0")

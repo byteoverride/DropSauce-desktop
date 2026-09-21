@@ -21,5 +21,5 @@ fun openLibraryDatabase(
 	.setDriver(BundledSQLiteDriver())
 	.setQueryCoroutineContext(dispatcher)
 	.addCallback(PrePopulateCallback(defaultCategoryTitle, now))
-	.addMigrations(Migration1To2, Migration2To3)
+	.addMigrations(Migration1To2, Migration2To3, Migration3To4)
 	.build()

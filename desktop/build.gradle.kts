@@ -4,6 +4,7 @@ plugins {
 	alias(libs.plugins.kotlin.jvm)
 	alias(libs.plugins.compose.compiler)
 	alias(libs.plugins.compose.multiplatform)
+	alias(libs.plugins.kotlinx.serialization)
 }
 
 kotlin {
@@ -23,6 +24,8 @@ dependencies {
 	// Material 3 Expressive APIs internal. See DECISIONS.md D6a.
 	implementation(libs.compose.material3.cmp)
 	implementation(libs.kotlinx.coroutines.core)
+	// Two feature areas independently hand-wrote a JSON codec because this was missing.
+	implementation(libs.kotlinx.serialization.json)
 
 	// The source catalogue. Pure JVM jar, 1270 parsers. Unlike :app we must NOT exclude
 	// org.json: Android ships it in the platform, the JVM does not. See DECISIONS.md D1.
