@@ -35,6 +35,9 @@ dependencies {
 	implementation(libs.okhttp)
 	implementation(libs.okio)
 
+	// kotlin.test alongside JUnit: :shared uses it, so a feature area moving logic
+	// between the two modules should not have to rewrite its assertions.
+	testImplementation(kotlin("test"))
 	testImplementation(libs.junit)
 	testImplementation(libs.kotlinx.coroutines.test)
 }
