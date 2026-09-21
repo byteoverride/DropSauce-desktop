@@ -80,10 +80,11 @@ Batch one, integrated: local library, downloads, discover (per-source
 filters and multi-source global search), bookmarks, statistics, backup
 and restore, chapter tracker, source migration and auto-fix.
 
-Batch two, in progress: external tracking services, reader extras
-(double page, colour filters, tap zones, per-title preferences),
+Batch two, integrated: external tracking services, reader extras,
 recommendations, library batch operations and incognito, richer local
-import (multi-chapter layouts, EPUB, ComicInfo.xml).
+import (multi-chapter layouts, EPUB, ComicInfo.xml). All thirteen
+features are registered in `AppState.features` and reachable from the
+nav rail.
 
 ### Deliberately not attempted
 
@@ -92,14 +93,39 @@ text to speech, and the Mihon and LNReader extension runtimes (D3, D2).
 
 ### Known open items
 
+**Built but not connected.** Both are screens that write settings the
+rest of the app never reads. They look finished from the nav rail, which
+is exactly why they are recorded here.
+
+- Reader extras: the colour filter and the tap-zone grid are edited and
+  persisted by `ReaderExtrasStore`, but nothing outside
+  `feature/readerx/` imports `ColorFilters`, `TapZones` or the store, so
+  `ReaderScreen` applies neither. Tap zones are also largely moot under
+  D22: webtoon scrolls, it does not tap to turn.
+- Per-title overrides: `TitlePrefsRepository` stores a custom title,
+  custom cover and preferred branch, and the extras screen lists them,
+  but `AppState.titlePrefs` is referenced nowhere else, so no screen
+  applies any of the three. Per-title **incognito** is the exception and
+  does work, because it is read through `CurateRepository` instead.
+
+**Debt.**
+
 - Tiled page decoding is not implemented; very tall webtoon strips decode
   whole. D10 records the `javax.imageio` region-decode path that fixes it.
-- `MangaEntity` to `Manga` mapping is duplicated across four files
+- `MangaEntity` to `Manga` mapping is duplicated across five files
   because `LibraryRepository`'s copy is private. Worth hoisting.
 - Two hand-rolled JSON codecs remain from before `kotlinx-serialization`
   was added to `:desktop`; both can now be deleted.
 - `:desktop` has no `BuildConfig`, so the backup's app id and version are
   hardcoded and will drift from `:app`.
+- There is no `manga_tags` table, so tags are not persisted and the
+  suggestions area re-derives them.
+- `FeatureContext` has no `list(source, sort, filter)`, so feature areas
+  reach through the `internal` `sources.session()`.
+- Backup hand-lists the settings fields it writes. Two were silently
+  missed once already; it should derive them from `SettingsData`.
+- `FeatureNavigator.openLocalReader` takes no page list, so chapters
+  inside an archive route around the shell reader.
 
 ### Process notes worth keeping
 
@@ -718,12 +744,12 @@ deciding before the catalogue UI is designed, not after.
 | LNReader novel plugins and the novel reader | D2, v1.1 |
 | ~~EPUB reading~~ | **No longer cut.** Implemented in the local import area: container.xml to OPF spine to NCX, with a text reader. It did not need the deferred novel-source runtime (D2) after all, because a file on disk needs no JS plugin host. |
 | Google Drive sync | `play-services-auth` is Android-only |
-| Scrobbling: AniList, MAL, Kitsu, Shikimori, MangaBaka | six OAuth flows, none of them load-bearing for reading a chapter |
+| ~~Scrobbling: AniList, MAL, Kitsu, Shikimori, MangaBaka~~ | **No longer cut.** Built in batch two; `TrackingRepository` pushes progress from the reader |
 | Discord Rich Presence | KizzyRPC is an Android library |
-| Downloads for offline reading | a whole worker, notification and storage subsystem; reading is online in v1 |
-| Chapter-update tracker and notifications | depends on background scheduling and notifications |
-| Suggestions | depends on the tracker |
-| Statistics | nice, not load-bearing |
+| ~~Downloads for offline reading~~ | **No longer cut.** Built in batch one; downloaded chapters open in the reader from the Downloads screen |
+| Chapter-update tracker | **Partly cut.** The tracker is built and shows updates in-app; there are no desktop notifications and no periodic background check, so it refreshes when asked |
+| ~~Suggestions~~ | **No longer cut.** Built in batch two as recommendations, with a related-titles strip on details |
+| ~~Statistics~~ | **No longer cut.** Built in batch one |
 | Text to speech | `android.speech.tts`; Linux needs speech-dispatcher |
 | App lock, biometric or PIN | no threat model on a desktop session |
 | AVIF pages | no JVM decoder exists; fails with a clear error, not a stub |
@@ -731,7 +757,8 @@ deciding before the catalogue UI is designed, not after.
 | The 11 sources needing `evaluateJs` and the 2 needing `requestBrowserAction` | D17, both throw a typed exception |
 | Interactive Cloudflare solving | needs an embedded browser (KCEF, ~100 MB into the .deb). Sources behind an active challenge will fail with a clear error. |
 | Home screen widgets, app shortcuts, Shizuku | Android platform concepts |
-| Double-page and reversed-double reader modes, page animations, configurable tap grid, colour filters, upscaling | reader polish; two modes is a reader |
+| Double-page and reversed-double reader modes, page animations, upscaling | reader polish, and moot under D22: webtoon has no pages to pair |
+| Colour filters and the tap grid | editors exist and persist; the reader does not read them. See "Built but not connected" |
 | AppImage | D12 |
 | Windows and macOS | mission says Linux |
 
