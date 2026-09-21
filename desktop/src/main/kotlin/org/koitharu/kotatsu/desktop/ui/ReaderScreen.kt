@@ -131,6 +131,9 @@ fun ReaderScreen(
 		val chapterProgress = (index + 1).toFloat() / pages.size
 		val percent = ((chapterIndex + chapterProgress) / chapters.size).coerceIn(0f, 1f)
 		state.scope.launch {
+			// Incognito is checked here rather than inside recordProgress so the reader
+			// is the thing that decides, and so a caller cannot forget by not asking.
+			if (!state.incognito.shouldRecordHistory(manga.id)) return@launch
 			state.library.recordProgress(
 				manga = manga,
 				chapterId = chapter.id,

@@ -12,12 +12,20 @@ import kotlinx.coroutines.launch
 import okio.FileSystem
 import org.koitharu.kotatsu.desktop.image.ImageCache
 import org.koitharu.kotatsu.desktop.feature.Feature
+import org.koitharu.kotatsu.desktop.feature.curate.CurateConfigStore
+import org.koitharu.kotatsu.desktop.feature.curate.CurateFeature
+import org.koitharu.kotatsu.desktop.feature.curate.CurateRepository
+import org.koitharu.kotatsu.desktop.feature.curate.IncognitoController
 import org.koitharu.kotatsu.desktop.feature.discover.DiscoverFeature
 import org.koitharu.kotatsu.desktop.feature.download.DownloadFeature
 import org.koitharu.kotatsu.desktop.feature.local.LocalFeature
+import org.koitharu.kotatsu.desktop.feature.localx.LocalExtrasFeature
 import org.koitharu.kotatsu.desktop.feature.migration.MigrationFeature
+import org.koitharu.kotatsu.desktop.feature.readerx.ReaderExtrasFeature
 import org.koitharu.kotatsu.desktop.feature.reading.BookmarksFeature
 import org.koitharu.kotatsu.desktop.feature.reading.StatsFeature
+import org.koitharu.kotatsu.desktop.feature.scrobbling.ScrobblingFeature
+import org.koitharu.kotatsu.desktop.feature.suggestions.SuggestionsFeature
 import org.koitharu.kotatsu.desktop.feature.sync.BackupFeature
 import org.koitharu.kotatsu.desktop.feature.sync.UpdatesFeature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
@@ -121,14 +129,35 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 	 */
 	val features: List<Feature> = listOf(
 		LocalFeature,
+		LocalExtrasFeature,
 		DiscoverFeature,
+		SuggestionsFeature,
 		DownloadFeature,
 		BookmarksFeature,
+		CurateFeature,
 		UpdatesFeature,
 		MigrationFeature,
+		ScrobblingFeature,
+		ReaderExtrasFeature,
 		StatsFeature,
 		BackupFeature,
 	)
+
+	/**
+	 * Whether reading should be recorded.
+	 *
+	 * One instance, deliberately. `CurateConfigStore` seeds its own `StateFlow` from the
+	 * file at construction, so two instances over the same path drift apart the moment
+	 * one writes: the user turns incognito on in the Organise screen and the reader,
+	 * holding the other instance, keeps recording. `shared()` exists for this and the
+	 * curate area has a test pinning it.
+	 */
+	val incognito: IncognitoController by lazy {
+		IncognitoController(
+			CurateRepository(database),
+			CurateConfigStore.shared(paths.config / CurateConfigStore.FILE_NAME),
+		)
+	}
 
 	fun feature(id: String): Feature? = features.firstOrNull { it.id == id }
 
