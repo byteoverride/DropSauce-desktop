@@ -544,6 +544,32 @@ for is not built, because it would have fixed nothing.
 in the same order is not a control. The line that cracked this was
 re-running the *first* configuration *last*.
 
+### D21. Local comics may have several chapters, detected from structure only
+
+Reverses an earlier judgment, with evidence rather than preference,
+which is the bar a reversal has to clear.
+
+The first local-library pass returned exactly one chapter per file,
+reasoning that a CBZ records no chapter boundaries and that inferring
+them from filenames guesses wrong on every scanlation naming scheme.
+That reasoning is still correct **for a flat archive**, and filename
+inference is still refused.
+
+It was wrong as a blanket rule. A folder of chapter sub-folders was not
+being treated conservatively, it was **unrepresentable**: `expand`
+returned it unchanged, `listDirectoryPages` reads the top level only,
+and the import failed outright with "folder contains no images". A dead
+layout is not a safe default.
+
+So layout is now detected from **structure the container actually
+records** (an entry's parent directory), never from names. Detection is
+a pure function returning `Detected`, `Ambiguous` or `NotAComic`, and it
+returns `Ambiguous` precisely in the cases where only filenames could
+decide. The user confirms the detected layout and chapter count before
+anything is written, the single-chapter reading stays available as an
+explicit option wherever it is representable, and it remains the only
+option when detection is ambiguous.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:
@@ -625,7 +651,7 @@ deciding before the catalogue UI is designed, not after.
 |---|---|
 | Mihon extension APKs | D3, permanent |
 | LNReader novel plugins and the novel reader | D2, v1.1 |
-| EPUB reading | follows the novel reader |
+| ~~EPUB reading~~ | **No longer cut.** Implemented in the local import area: container.xml to OPF spine to NCX, with a text reader. It did not need the deferred novel-source runtime (D2) after all, because a file on disk needs no JS plugin host. |
 | Google Drive sync | `play-services-auth` is Android-only |
 | Scrobbling: AniList, MAL, Kitsu, Shikimori, MangaBaka | six OAuth flows, none of them load-bearing for reading a chapter |
 | Discord Rich Presence | KizzyRPC is an Android library |
