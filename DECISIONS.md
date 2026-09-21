@@ -42,33 +42,78 @@ natively JVM, and the Android app keeps the two that are not.
 ## 0a. Phase 2 progress
 
 Every row was verified by running the command, not by inspection. The
-Android gate is re-run at every commit.
+Android gate is re-run before each commit.
 
-| Step (D5) | State | Evidence |
-|---|---|---|
-| 1. `:desktop` skeleton + toolchain proof | **done** (`ffda5a4`) | `:app:assembleDebug` 2m31s; `:shared:build` 6 tests 0 failures; `:desktop:run` held a window 90s under XWayland; `:desktop:packageDeb` produced `dropsauce_0.9.6_amd64.deb`, 54 MB, 106 files under `lib/runtime/`, no JVM in `Depends:` |
-| 2. In-place decoupling refactors | **partly done**, deprioritised at the user's direction in favour of shipping working screens | |
-| 2a. `printStackTraceDebug` off the debug/release source sets | **done** (`e26e9be`) | 206 call sites across 87 files, zero edited; both old declarations deleted so a green build proves resolution comes from `:shared`; dexdump finds `DebugFlags` in the APK |
-| 2b. `BuildConfig` out of move-bound files | todo | |
-| 2c. invert `domain` -> `ui` in `list/domain` | todo | |
-| 2d. strip `@StringRes`/`@DrawableRes` off domain enums | todo | |
-| 2e. split the mixed `core/util/ext` files | todo | |
-| 3. `:shared` models, enums, decoupled domain | todo | |
-| 4. Room layer into `:shared` | **done** (`21f0d08`, `98dd541`) | 16 shared tests; re-entrancy harness with a positive control; history survives reopening the database |
-| 5. Desktop platform implementations | **done** for the parser host and images (`742fae2`, `990a9b5`) | 1270 sources instantiate; live `getList`/`getDetails`/`getPages` |
-| 6. Desktop UI | **browse, search, details, reader, library, categories, history done** | driven through the real UI and screenshotted at each step |
-| 7. Packaging | **done and installed** | `dropsauce_0.9.6_amd64.deb`, installed to `/opt/dropsauce`, runs on its bundled JRE |
+**Current state:** `:app:assembleDebug` green, **201 tests** passing
+across `:shared` and `:desktop`, `.deb` built and installed to
+`/opt/dropsauce` running on its own bundled JRE.
 
-**Working end to end as of the library commit:** nav rail (Library /
-Sources / History), 890 usable sources, per-source browse and search,
-details with chapters, a reader with paged LTR/RTL and webtoon, saving a
-title into a category, and category create/rename/delete. Verified by
-driving the real app, not by inspection.
+### Working in the app
 
-**Contracts defined so far** (mine alone, per the subagent rules):
-`AppPaths` (`shared/.../shared/io/AppPaths.kt`, okio `Path`, replaces
-threading `Context` for `filesDir`/`cacheDir`) with `XdgAppPaths` on JVM,
-and `DebugFlags` (`shared/.../core/util/ext/Debug.kt`).
+Nav rail with 12 destinations. Library with categories (create, rename,
+delete, multi-category membership) and a chapter-count filter. Source
+catalogue of 890 usable sources with an adult filter. Per-source browse
+and search. Details with chapters, save-to-category, Continue/Start
+over. Reader with paged LTR/RTL and webtoon, zoom and pan, keyboard
+navigation. History with progress. Settings, everything in it wired to
+real behaviour. Local import, downloads, bookmarks, statistics, backup
+and restore, chapter tracking, source migration.
+
+### Foundations
+
+| Step | State |
+|---|---|
+| `:desktop` + `:shared` skeleton, toolchain proof | done, D6 |
+| Parser host, 1270 sources instantiate, live fetch verified | done, D1 |
+| Room KMP, re-entrancy proven with a positive control | done |
+| Schema v1 -> v4, each migration verified on the real database | done |
+| Packaging, install, bundled JRE | done, D12 and D13 |
+| `README-DESKTOP.md` | done |
+
+### Feature areas
+
+Built in two parallel batches of five, each area in an exclusive
+directory behind the `FeatureContext` contract.
+
+Batch one, integrated: local library, downloads, discover (per-source
+filters and multi-source global search), bookmarks, statistics, backup
+and restore, chapter tracker, source migration and auto-fix.
+
+Batch two, in progress: external tracking services, reader extras
+(double page, colour filters, tap zones, per-title preferences),
+recommendations, library batch operations and incognito, richer local
+import (multi-chapter layouts, EPUB, ComicInfo.xml).
+
+### Deliberately not attempted
+
+Discord Rich Presence, Google Drive sync, home screen widgets, Shizuku,
+text to speech, and the Mihon and LNReader extension runtimes (D3, D2).
+
+### Known open items
+
+- Tiled page decoding is not implemented; very tall webtoon strips decode
+  whole. D10 records the `javax.imageio` region-decode path that fixes it.
+- `MangaEntity` to `Manga` mapping is duplicated across four files
+  because `LibraryRepository`'s copy is private. Worth hoisting.
+- Two hand-rolled JSON codecs remain from before `kotlinx-serialization`
+  was added to `:desktop`; both can now be deleted.
+- `:desktop` has no `BuildConfig`, so the backup's app id and version are
+  hardcoded and will drift from `:app`.
+
+### Process notes worth keeping
+
+- A `git add -A` during parallel agent work swept nineteen files of five
+  agents' in-flight code into an unrelated commit. Stage explicit paths.
+- A commit ran behind a shell `&&` chain whose earlier command succeeded,
+  so it committed while `:desktop:test` was failing. Verification must
+  gate the commit, not merely precede it.
+- Agents that ran a **positive control**, deliberately breaking their own
+  mechanism to prove the test detects it, caught real defects. Agents
+  that only reported green did not. The controls are worth requiring.
+
+**Contracts owned centrally** (never by a feature area): the Room schema
+and its migrations, `FeatureContext`, `Feature`, `FeatureNavigator`,
+`AppState`, `Main.kt` and the navigation shell.
 
 ---
 
