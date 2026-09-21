@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.koitharu.kotatsu.desktop.feature.suggestions.RelatedTitlesStrip
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
@@ -54,6 +55,7 @@ fun DetailsScreen(
 	seed: Manga,
 	onBack: () -> Unit,
 	onRead: (List<MangaChapter>, Int, Int) -> Unit,
+	onOpenRelated: (MangaParserSource, Manga) -> Unit = { _, _ -> },
 ) {
 	val session = remember(source) { state.sources.session(source) }
 	var manga by remember(seed.id) { mutableStateOf(seed) }
@@ -129,6 +131,13 @@ fun DetailsScreen(
 			else -> LazyColumn(Modifier.fillMaxSize()) {
 				item {
 					Header(manga = manga, state = state, client = session.client)
+					HorizontalDivider()
+					RelatedTitlesStrip(
+						context = state.featureContext,
+						source = source,
+						manga = manga,
+						onOpen = onOpenRelated,
+					)
 					HorizontalDivider()
 				}
 				if (chapters.isEmpty()) {

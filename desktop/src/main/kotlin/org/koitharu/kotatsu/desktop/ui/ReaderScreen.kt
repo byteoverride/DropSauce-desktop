@@ -50,12 +50,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import org.koitharu.kotatsu.core.util.ext.printStackTraceDebug
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaPage
+import org.koitharu.kotatsu.desktop.feature.reading.BookmarkToggle
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
+import org.koitharu.kotatsu.shared.settings.ReadingMode
 
 /** Reading direction. Webtoon is one continuous vertical strip; the others are paged. */
 enum class ReaderMode { PAGED_LTR, PAGED_RTL, WEBTOON }
@@ -89,7 +92,14 @@ fun ReaderScreen(
 	// must start at its beginning, which is why this keys on the chapter.
 	var index by remember(chapter.id) { mutableStateOf(0) }
 	var appliedInitial by remember(chapter.id) { mutableStateOf(false) }
-	var mode by remember { mutableStateOf(ReaderMode.PAGED_LTR) }
+	// Start from the app default, then let a per-title override win. Both are applied
+	// once per title rather than per chapter, so switching mode mid-title sticks.
+	var mode by remember(manga.id) {
+		mutableStateOf(state.settings.data.value.readingMode.toReaderMode())
+	}
+	LaunchedEffect(manga.id) {
+		state.titlePrefs.find(manga.id)?.readingMode?.let { mode = it.toReaderMode() }
+	}
 	val zoom = remember { ZoomState() }
 
 	LaunchedEffect(chapter.id, attempt) {
@@ -144,6 +154,16 @@ fun ReaderScreen(
 		}
 	}
 
+	// Tell external trackers once per chapter, not once per page: services treat
+	// progress as an absolute chapter count, so a page-level push would be noise.
+	// Incognito suppresses this too, since a tracker is a more public record than
+	// local history.
+	LaunchedEffect(chapter.id) {
+		if (!state.incognito.shouldRecordHistory(manga.id)) return@LaunchedEffect
+		runCatching { state.tracking.pushProgress(manga.id, chapters, chapter.id) }
+			.onFailure { it.printStackTraceDebug() }
+	}
+
 	val focus = remember { FocusRequester() }
 	LaunchedEffect(chapter.id) { focus.requestFocus() }
 
@@ -191,6 +211,24 @@ fun ReaderScreen(
 			mode = mode,
 			onMode = { mode = it },
 			onBack = onBack,
+			bookmark = {
+				val current = pages.getOrNull(index)
+				if (current != null) {
+					BookmarkToggle(
+						repository = state.bookmarks,
+						manga = manga,
+						chapterId = chapter.id,
+						pageId = current.id,
+						page = index,
+						imageUrl = current.preview ?: current.url,
+						percent = if (chapters.isEmpty()) {
+							0f
+						} else {
+							(chapterIndex + (index + 1f) / pages.size.coerceAtLeast(1)) / chapters.size
+						},
+					)
+				}
+			},
 		)
 		when {
 			loading -> LoadingBox()
@@ -212,6 +250,7 @@ private fun ReaderBar(
 	mode: ReaderMode,
 	onMode: (ReaderMode) -> Unit,
 	onBack: () -> Unit,
+	bookmark: @Composable () -> Unit = {},
 ) {
 	Row(
 		modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
@@ -219,6 +258,7 @@ private fun ReaderBar(
 		horizontalArrangement = Arrangement.spacedBy(8.dp),
 	) {
 		Button(onClick = onBack) { Text("Back") }
+		bookmark()
 		Column(Modifier.weight(1f)) {
 			Text(
 				text = chapter.title ?: "Chapter ${chapter.number}",
@@ -461,3 +501,17 @@ private const val WHEEL_STEP = 1.15f
 
 /** Per key press. Larger than a wheel notch, since keys are pressed deliberately. */
 private const val KEY_STEP = 1.25f
+
+
+/**
+ * Maps the shared settings enum onto the reader's own mode.
+ *
+ * The boundary lives here because `ReaderMode` is private to the reader while
+ * `ReadingMode` is what the settings and the `reading_mode` column speak. The feature
+ * area deliberately did not import `ReaderMode`, so this is the shell's two lines.
+ */
+fun ReadingMode.toReaderMode(): ReaderMode = when (this) {
+	ReadingMode.PagedLtr -> ReaderMode.PAGED_LTR
+	ReadingMode.PagedRtl -> ReaderMode.PAGED_RTL
+	ReadingMode.Webtoon -> ReaderMode.WEBTOON
+}

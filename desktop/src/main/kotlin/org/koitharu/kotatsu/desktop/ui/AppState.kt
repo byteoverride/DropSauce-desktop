@@ -22,9 +22,13 @@ import org.koitharu.kotatsu.desktop.feature.local.LocalFeature
 import org.koitharu.kotatsu.desktop.feature.localx.LocalExtrasFeature
 import org.koitharu.kotatsu.desktop.feature.migration.MigrationFeature
 import org.koitharu.kotatsu.desktop.feature.readerx.ReaderExtrasFeature
+import org.koitharu.kotatsu.desktop.feature.readerx.TitlePrefsRepository
 import org.koitharu.kotatsu.desktop.feature.reading.BookmarksFeature
+import org.koitharu.kotatsu.desktop.feature.reading.BookmarksRepository
 import org.koitharu.kotatsu.desktop.feature.reading.StatsFeature
 import org.koitharu.kotatsu.desktop.feature.scrobbling.ScrobblingFeature
+import org.koitharu.kotatsu.desktop.feature.scrobbling.TrackingRepository
+import org.koitharu.kotatsu.desktop.feature.scrobbling.createTrackingRepository
 import org.koitharu.kotatsu.desktop.feature.suggestions.SuggestionsFeature
 import org.koitharu.kotatsu.desktop.feature.sync.BackupFeature
 import org.koitharu.kotatsu.desktop.feature.sync.UpdatesFeature
@@ -152,6 +156,20 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 	 * holding the other instance, keeps recording. `shared()` exists for this and the
 	 * curate area has a test pinning it.
 	 */
+	/**
+	 * One tracking repository for the whole app.
+	 *
+	 * The services screen and the per-title link widget must agree about connection
+	 * state, and each construction builds its own sessions and token store.
+	 */
+	val tracking: TrackingRepository by lazy { createTrackingRepository(featureContext) }
+
+	/** Per-title reading overrides, read when the reader opens a title. */
+	val titlePrefs: TitlePrefsRepository by lazy { TitlePrefsRepository(database) }
+
+	/** Bookmarks, shared between the reader's toggle and the bookmarks screen. */
+	val bookmarks: BookmarksRepository by lazy { BookmarksRepository(database) }
+
 	val incognito: IncognitoController by lazy {
 		IncognitoController(
 			CurateRepository(database),

@@ -213,6 +213,7 @@ private fun Router(state: AppState) {
 			onRead = { chapters, index, page ->
 				state.go(Screen.Reader(screen.source, screen.manga, chapters, index, page))
 			},
+			onOpenRelated = { source, manga -> state.go(Screen.Details(source, manga)) },
 		)
 
 		is Screen.LocalReader -> ReaderScreen(
