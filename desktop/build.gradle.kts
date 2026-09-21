@@ -50,6 +50,13 @@ tasks.test {
 	testLogging { showStandardStreams = true }
 }
 
+// `./gradlew :desktop:run -Pdebug` turns on printStackTraceDebug, so swallowed
+// failures (a page that will not decode, a source that 403s) print instead of showing
+// as a blank reader. Off by default so a normal run is quiet.
+tasks.withType<JavaExec>().configureEach {
+	systemProperty("dropsauce.debug", providers.gradleProperty("debug").isPresent.toString())
+}
+
 compose.desktop {
 	application {
 		mainClass = "org.koitharu.kotatsu.desktop.MainKt"

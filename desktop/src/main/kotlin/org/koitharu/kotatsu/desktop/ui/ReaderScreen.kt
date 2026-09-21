@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.HorizontalDivider
@@ -33,10 +33,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,9 +99,12 @@ fun ReaderScreen(
 	var loading by remember(chapter.id) { mutableStateOf(true) }
 	var error: String? by remember(chapter.id) { mutableStateOf(null) }
 	var attempt by remember(chapter.id) { mutableStateOf(0) }
-	// Only the chapter opened from a resume starts mid-way; moving on to the next chapter
-	// must start at its beginning, which is why this keys on the chapter.
-	var index by remember(chapter.id) { mutableStateOf(0) }
+	// The scroll position IS the current page. It used to be a separate counter that
+	// only next() and previous() moved, so scrolling a continuous strip never changed
+	// it: the page readout, the recorded history and the resume point all stayed on
+	// page one no matter how far you read.
+	val listState = remember(chapter.id) { LazyListState() }
+	val index by remember(chapter.id) { derivedStateOf { listState.firstVisibleItemIndex } }
 	var appliedInitial by remember(chapter.id) { mutableStateOf(false) }
 	val zoom = remember { ZoomState() }
 	val settings by state.settings.data.collectAsState()
@@ -109,29 +114,39 @@ fun ReaderScreen(
 		error = null
 		pages.clear()
 		runCatching { pageSource.pages(chapter) }
-			.onSuccess {
-				pages.addAll(it)
-				if (!appliedInitial) {
-					// Clamped: a source can return fewer pages than when the position
-					// was recorded, and opening past the end would show nothing.
-					index = initialPage.coerceIn(0, (it.size - 1).coerceAtLeast(0))
-					appliedInitial = true
-				}
-			}
+			.onSuccess { pages.addAll(it) }
 			.onFailure { error = it.message ?: it::class.simpleName ?: "Request failed" }
 		loading = false
 	}
 
+	// Restoring the reading position has to happen AFTER the list exists. scrollToItem
+	// suspends until the list is laid out, so calling it while `loading` is still true
+	// waits for a LazyColumn that is not composed yet and never will be: the load
+	// effect deadlocks and the reader stays blank. Hence a separate effect, keyed on
+	// the pages actually being there.
+	LaunchedEffect(chapter.id, pages.size) {
+		if (pages.isEmpty() || appliedInitial) return@LaunchedEffect
+		appliedInitial = true
+		// Clamped: a source can return fewer pages than when the position was recorded,
+		// and opening past the end would show nothing.
+		val target = initialPage.coerceIn(0, pages.lastIndex)
+		if (target > 0) listState.scrollToItem(target)
+	}
+
+	// Keyboard navigation scrolls the strip rather than moving a counter beside it,
+	// so keys and the scroll wheel cannot disagree about where the reader is.
+	val scroller = rememberCoroutineScope()
+
 	fun next() {
 		when {
-			index < pages.lastIndex -> index++
+			index < pages.lastIndex -> scroller.launch { listState.animateScrollToItem(index + 1) }
 			chapterIndex < chapters.lastIndex -> onChapterChange(chapterIndex + 1)
 		}
 	}
 
 	fun previous() {
 		when {
-			index > 0 -> index--
+			index > 0 -> scroller.launch { listState.animateScrollToItem(index - 1) }
 			chapterIndex > 0 -> onChapterChange(chapterIndex - 1)
 		}
 	}
@@ -140,6 +155,11 @@ fun ReaderScreen(
 	// than the composition's, so leaving the reader mid-write does not cancel it.
 	LaunchedEffect(chapter.id, index, pages.size) {
 		if (pages.isEmpty()) return@LaunchedEffect
+		// Settle before writing. Now that the page comes from the scroll position this
+		// effect restarts on every page that passes, and a flick through twenty pages
+		// would otherwise be twenty database writes. Restarting cancels the pending
+		// delay, so only the position the reader stops on is recorded.
+		delay(PROGRESS_SETTLE_MS)
 		val chapterProgress = (index + 1).toFloat() / pages.size
 		val percent = ((chapterIndex + chapterProgress) / chapters.size).coerceIn(0f, 1f)
 		state.scope.launch {
@@ -247,6 +267,7 @@ fun ReaderScreen(
 				pages = pages,
 				zoom = zoom,
 				widthPercent = settings.webtoonWidthPercent,
+				listState = listState,
 			)
 		}
 		}
@@ -392,8 +413,8 @@ private fun WebtoonStrip(
 	pages: List<MangaPage>,
 	zoom: ZoomState,
 	widthPercent: Int,
+	listState: LazyListState,
 ) {
-	val listState = rememberLazyListState()
 	Box(
 		modifier = Modifier
 			.fillMaxSize()
@@ -486,6 +507,9 @@ private fun PageImage(
 
 /** How many times to re-resolve and refetch a page before giving up on it. */
 private const val PAGE_ATTEMPTS = 4
+
+/** How long the reader must stay on a page before that position is saved. */
+private const val PROGRESS_SETTLE_MS = 600L
 
 /** Backoff between page attempts, multiplied by the attempt number. */
 private const val PAGE_RETRY_DELAY_MS = 400L
