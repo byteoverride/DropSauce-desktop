@@ -32,6 +32,55 @@ interface MangaDao {
 
 	@Query("SELECT * FROM manga WHERE manga_id = :id")
 	suspend fun find(id: Long): MangaEntity?
+
+	/**
+	 * Copies a chapter count the app already knows onto the title itself.
+	 *
+	 * `history.chapters` has carried the real count since before `manga.chapters_count`
+	 * existed, and nothing ever moved it across: a library restored from an Android
+	 * backup (which does not carry the field at all) or written before the column was
+	 * added ends up with a read title whose stored count is still zero, so the library's
+	 * length filter puts it in "Not loaded" forever. Idempotent, so it is safe to run on
+	 * every start and again before a refresh.
+	 */
+	@Query(
+		"UPDATE manga SET chapters_count = " +
+			"(SELECT h.chapters FROM history h WHERE h.manga_id = manga.manga_id) " +
+			"WHERE chapters_count = 0 AND manga_id IN " +
+			"(SELECT h.manga_id FROM history h WHERE h.chapters > 0)",
+	)
+	suspend fun backfillChaptersCountFromHistory(): Int
+
+	/**
+	 * Saved titles whose chapter count is not known locally, in display order.
+	 *
+	 * Scoped by category because a library is filled in a category at a time: the point
+	 * of the length filter is to sort out one shelf, and making that cost a live request
+	 * for every other shelf too is the difference between a usable action and one nobody
+	 * presses. A null [categoryId] means the whole library.
+	 */
+	@Query(
+		"SELECT * FROM manga WHERE chapters_count = 0 AND manga_id IN " +
+			"(SELECT f.manga_id FROM favourites f WHERE f.deleted_at = 0 " +
+			"AND (:categoryId IS NULL OR f.category_id = :categoryId)) ORDER BY title",
+	)
+	suspend fun favouritesWithoutChaptersCount(categoryId: Long?): List<MangaEntity>
+
+	@Query(
+		"SELECT COUNT(*) FROM manga WHERE chapters_count = 0 AND manga_id IN " +
+			"(SELECT f.manga_id FROM favourites f WHERE f.deleted_at = 0 " +
+			"AND (:categoryId IS NULL OR f.category_id = :categoryId))",
+	)
+	fun observeFavouritesWithoutChaptersCount(categoryId: Long?): Flow<Int>
+
+	/**
+	 * Records a freshly fetched count without touching the rest of the row.
+	 *
+	 * An upsert would replace the whole row from whatever projection the caller happens
+	 * to hold, which is how a title's stored cover or author gets quietly downgraded.
+	 */
+	@Query("UPDATE manga SET chapters_count = :count WHERE manga_id = :id AND :count > 0")
+	suspend fun setChaptersCount(id: Long, count: Int)
 }
 
 @Dao

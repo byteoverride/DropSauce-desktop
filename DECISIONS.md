@@ -661,6 +661,46 @@ joined chapter 1 (+18) and then chapter 2 (+16), strip 44 pages, the bar
 moving "prologue 10 / 10" -> "Prólogo 1 / 18" -> "Prólogo 18 / 18" with
 no screen change; History resumed at the second chapter.
 
+### D24. The library's length filter owns its own counts
+
+The filter reads `manga.chapters_count`. Every writer of that column was a side
+effect of visiting one title: opening its details, reading it, tracking it. That
+is enough for a library grown inside this app and nothing at all for one that
+arrived whole, and a restore is how a real library arrives: `BackupRepository`
+already documents that an Android backup does not carry the field.
+
+Measured on a real library before the fix: 359 favourites, 358 of them at zero,
+so every bucket except "Not loaded" was empty. The filter was not wrong, it had
+nothing to read. 118 of those had the true count sitting in `history.chapters`,
+written by the reader and never copied onto the title.
+
+Three writers now, in order of what they cost:
+
+1. `MangaDao.backfillChaptersCountFromHistory`, run on every start. Local,
+   idempotent, free. Fills in 117 rows on that library.
+2. The existing per-title side effects, unchanged.
+3. `ChapterCountRefresher`, started by a button on the library screen, scoped to
+   the selected category, four requests at a time. The only thing that can learn
+   the count of a title nobody has opened, which on a shelf kept for unread
+   titles is most of it: of 190 in "Marinate", 9 were answerable locally.
+
+The refresher is a button and not something the screen does when it opens.
+Two hundred requests to third-party sites is not a thing to start on the user's
+behalf, and D11 already rules out anything scheduled.
+
+A count of zero is never stored. "The source listed nothing" and "nobody has
+asked" are different states and the filter shows them the same way, so a fetch
+that comes back empty is reported as failed and offered again.
+
+The screen says how many titles have no count yet, in the bar and in the empty
+state. "Nothing matches" and "nothing has been counted" look identical
+otherwise, and the second one was the actual bug.
+
+Filtering a category is not the goal, refiling it is: the filter is how you find
+the titles in "Marinate" that have passed 100 chapters, and moving them is the
+point. That action reuses `CurateRepository.moveToCategory`, which is already
+one transaction, rather than growing a second implementation of it.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:

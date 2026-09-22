@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -20,6 +21,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -38,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
+import org.koitharu.kotatsu.desktop.library.ChapterCountProgress
 import org.koitharu.kotatsu.desktop.library.LibraryItem
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.shared.db.FavouriteCategoryEntity
@@ -58,10 +61,15 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 	var creating by remember { mutableStateOf(false) }
 
 	var lengthFilter by remember { mutableStateOf(ChapterFilter.Any) }
+	var refiling by remember { mutableStateOf(false) }
+	var notice: String? by remember { mutableStateOf(null) }
 
 	val all by remember(selected) { state.library.observeFavourites(selected) }
 		.collectAsState(emptyList())
 	val items = remember(all, lengthFilter) { all.filter(lengthFilter::matches) }
+	val missingCounts by remember(selected) { state.chapterCounts.observeMissing(selected) }
+		.collectAsState(0)
+	val countProgress by state.chapterCounts.progress.collectAsState()
 
 	Column(Modifier.fillMaxSize()) {
 		TopBar(
@@ -78,14 +86,44 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 		CategoryChips(
 			categories = categories,
 			selected = selected,
-			onSelect = { selected = it },
+			// The notice names a category and a count, so it stops being true the moment
+			// either changes.
+			onSelect = { selected = it; notice = null },
 			onManage = { manageTarget = it },
 		)
-		ChapterFilterChips(selected = lengthFilter, onSelect = { lengthFilter = it })
+		ChapterFilterChips(selected = lengthFilter, onSelect = { lengthFilter = it; notice = null })
+		ChapterCountBar(
+			missing = missingCounts,
+			progress = countProgress,
+			onLoad = { state.chapterCounts.start(selected) },
+			onCancel = { state.chapterCounts.cancel() },
+			onDismiss = { state.chapterCounts.dismiss() },
+		)
+		if (lengthFilter != ChapterFilter.Any && items.isNotEmpty()) {
+			RefileBar(
+				count = items.size,
+				fromAll = selected == null,
+				onRefile = { refiling = true },
+			)
+		}
+		notice?.let { message ->
+			Text(
+				text = message,
+				style = MaterialTheme.typography.bodyMedium,
+				modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+			)
+		}
 		when {
 			items.isEmpty() && all.isNotEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
 				Text(
-					"No titles match ${lengthFilter.label.lowercase()}.",
+					// Naming the unknowns matters: "nothing matches" and "nothing has a
+					// count yet" look identical on screen and mean opposite things.
+					if (missingCounts > 0) {
+						"No titles match ${lengthFilter.label.lowercase()}. " +
+							"$missingCounts here have no chapter count yet."
+					} else {
+						"No titles match ${lengthFilter.label.lowercase()}."
+					},
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
@@ -119,6 +157,31 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 		)
 	}
 
+	if (refiling) {
+		RefileDialog(
+			count = items.size,
+			filterLabel = lengthFilter.label,
+			categories = categories.filter { it.categoryId != selected },
+			onDismiss = { refiling = false },
+			onConfirm = { target ->
+				val ids = items.map { it.manga.id }
+				val from = selected
+				scope.launch {
+					val result = if (from == null) {
+						// Nothing to move out of: "All" is a view over every category, so
+						// the only well-defined action is filing the titles as well.
+						state.curate.addToCategory(ids, target.categoryId)
+					} else {
+						state.curate.moveToCategory(ids, from = from, to = target.categoryId)
+					}
+					val verb = if (from == null) "added to" else "moved to"
+					notice = "${result.describe("$verb ${target.title}")}."
+				}
+				refiling = false
+			},
+		)
+	}
+
 	manageTarget?.let { category ->
 		ManageCategoryDialog(
 			category = category,
@@ -141,9 +204,14 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 /**
  * Filter the library by how long a title is.
  *
- * Counts come from the stored `chapters_count`, written whenever a title's details are
- * loaded. A title saved but never opened has no count, so [Unknown] exists to make those
- * findable rather than quietly absent from every bucket.
+ * Counts come from the stored `chapters_count`. That column is filled in three ways: as a
+ * side effect of opening, reading or tracking a title; by copying what `history` already
+ * knows, which happens on every start; and by
+ * [org.koitharu.kotatsu.desktop.library.ChapterCountRefresher], which fetches the rest on
+ * request. Only the last covers a title that has never been opened, and a library
+ * restored from an Android backup is entirely made of those, so the filter is only as
+ * good as the counts and the screen says so rather than reporting every bucket empty.
+ * [Unknown] makes the titles still missing a count findable.
  */
 enum class ChapterFilter(val label: String, private val range: IntRange?) {
 
@@ -157,6 +225,118 @@ enum class ChapterFilter(val label: String, private val range: IntRange?) {
 
 	fun matches(item: LibraryItem): Boolean =
 		range == null || item.chaptersCount in range
+}
+
+/**
+ * Offers to fetch the chapter counts the filter has no answer for, and reports a run.
+ *
+ * Shown only when there is something to fetch or something to report. A library built up
+ * in this app fills its counts in as titles are opened and never sees this bar; one that
+ * arrived from a backup has no counts at all and cannot use the filter until it does.
+ */
+@Composable
+private fun ChapterCountBar(
+	missing: Int,
+	progress: ChapterCountProgress?,
+	onLoad: () -> Unit,
+	onCancel: () -> Unit,
+	onDismiss: () -> Unit,
+) {
+	val running = progress?.running == true
+	if (!running && progress == null && missing == 0) return
+	Row(
+		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		when {
+			running -> {
+				LinearProgressIndicator(
+					progress = { progress.done.toFloat() / progress.total.coerceAtLeast(1) },
+					modifier = Modifier.width(120.dp),
+				)
+				Text(
+					text = "Loading chapter counts, ${progress.done} of ${progress.total}",
+					style = MaterialTheme.typography.bodyMedium,
+				)
+				TextButton(onClick = onCancel) { Text("Stop") }
+			}
+
+			progress != null -> {
+				Text(
+					text = if (progress.failed > 0) {
+						"Loaded ${progress.filled} counts, ${progress.failed} could not be reached."
+					} else {
+						"Loaded ${progress.filled} counts."
+					},
+					style = MaterialTheme.typography.bodyMedium,
+				)
+				TextButton(onClick = onDismiss) { Text("Dismiss") }
+			}
+
+			else -> {
+				Text(
+					text = "$missing here have no chapter count yet.",
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				// One live request per title, so this is a button and not something the
+				// screen does on its own when it opens.
+				AssistChip(onClick = onLoad, label = { Text("Load counts") })
+			}
+		}
+	}
+}
+
+/** Files everything the length filter is currently showing into another category. */
+@Composable
+private fun RefileBar(count: Int, fromAll: Boolean, onRefile: () -> Unit) {
+	Row(
+		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		AssistChip(
+			onClick = onRefile,
+			label = { Text(if (fromAll) "Add these $count to…" else "Move these $count to…") },
+		)
+	}
+}
+
+@Composable
+private fun RefileDialog(
+	count: Int,
+	filterLabel: String,
+	categories: List<FavouriteCategoryEntity>,
+	onDismiss: () -> Unit,
+	onConfirm: (FavouriteCategoryEntity) -> Unit,
+) {
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text("$count titles, ${filterLabel.lowercase()}") },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+				if (categories.isEmpty()) {
+					Text(
+						"No other category to file these into.",
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+				for (category in categories) {
+					Text(
+						text = category.title,
+						style = MaterialTheme.typography.bodyLarge,
+						modifier = Modifier
+							.fillMaxWidth()
+							.clickable { onConfirm(category) }
+							.padding(vertical = 8.dp),
+					)
+				}
+			}
+		},
+		confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+	)
 }
 
 @Composable

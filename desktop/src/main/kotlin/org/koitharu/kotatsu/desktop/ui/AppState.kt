@@ -33,6 +33,7 @@ import org.koitharu.kotatsu.desktop.feature.suggestions.SuggestionsFeature
 import org.koitharu.kotatsu.desktop.feature.sync.BackupFeature
 import org.koitharu.kotatsu.desktop.feature.sync.UpdatesFeature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
+import org.koitharu.kotatsu.desktop.library.ChapterCountRefresher
 import org.koitharu.kotatsu.desktop.library.LibraryRepository
 import org.koitharu.kotatsu.desktop.source.SourceRegistry
 import org.koitharu.kotatsu.parsers.model.Manga
@@ -170,10 +171,27 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 	/** Bookmarks, shared between the reader's toggle and the bookmarks screen. */
 	val bookmarks: BookmarksRepository by lazy { BookmarksRepository(database) }
 
+	/** Batch operations over saved titles, shared by the organise screen and the library. */
+	val curate: CurateRepository by lazy { CurateRepository(database) }
+
 	val incognito: IncognitoController by lazy {
 		IncognitoController(
-			CurateRepository(database),
+			curate,
 			CurateConfigStore.shared(paths.config / CurateConfigStore.FILE_NAME),
+		)
+	}
+
+	/**
+	 * Fills in library chapter counts.
+	 *
+	 * Held here rather than on the library screen so a run keeps going while the user
+	 * navigates away, which matters when a shelf is two hundred titles deep.
+	 */
+	val chapterCounts: ChapterCountRefresher by lazy {
+		ChapterCountRefresher(
+			db = database,
+			fetcher = { source, manga -> featureContext.details(source, manga).chapters?.size ?: 0 },
+			scope = scope,
 		)
 	}
 
@@ -242,6 +260,10 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 	}
 
 	init {
+		// Chapter counts the app already knows but never stored on the title. Cheap,
+		// idempotent and local, so it runs on every start rather than waiting for the
+		// user to press anything.
+		scope.launch { library.backfillChapterCounts() }
 		// Settings that other components cache have to be pushed when they change.
 		scope.launch {
 			var previousUserAgent = settings.data.value.userAgent

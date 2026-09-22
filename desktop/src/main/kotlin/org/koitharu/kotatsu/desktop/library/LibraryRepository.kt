@@ -108,6 +108,16 @@ class LibraryRepository(private val db: LibraryDatabase) {
 		db.mangaDao().upsert(manga.toEntity(count))
 	}
 
+	/**
+	 * Moves chapter counts the app already knows onto the titles themselves.
+	 *
+	 * [refreshStored] only fires for a title whose details screen is open, so a library
+	 * that arrived any other way (a restore, or simply predating the column) has nothing
+	 * stored however much of it has been read. The count is sitting in `history` for
+	 * every one of those, so copying it across costs no request. Returns rows filled in.
+	 */
+	suspend fun backfillChapterCounts(): Int = db.mangaDao().backfillChaptersCountFromHistory()
+
 	fun observeHistory(limit: Int = HISTORY_LIMIT): Flow<List<HistoryItem>> =
 		db.historyDao().observeRecent(limit).map { rows ->
 			rows.map {
@@ -189,7 +199,7 @@ private fun Manga.toEntity(chaptersCount: Int) = MangaEntity(
 	chaptersCount = chaptersCount,
 )
 
-private fun MangaEntity.toManga() = Manga(
+internal fun MangaEntity.toManga() = Manga(
 	id = mangaId,
 	title = title,
 	altTitles = setOfNotNull(altTitle),
