@@ -9,9 +9,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
 import okio.FileSystem
 import org.koitharu.kotatsu.desktop.image.ImageCache
 import org.koitharu.kotatsu.desktop.feature.Feature
+import org.koitharu.kotatsu.desktop.feature.appupdate.AppUpdateFeature
 import org.koitharu.kotatsu.desktop.feature.curate.CurateConfigStore
 import org.koitharu.kotatsu.desktop.feature.curate.CurateFeature
 import org.koitharu.kotatsu.desktop.feature.curate.CurateRepository
@@ -44,6 +46,7 @@ import org.koitharu.kotatsu.shared.io.AppPaths
 import org.koitharu.kotatsu.shared.settings.JsonSettingsStore
 import org.koitharu.kotatsu.shared.settings.SettingsStore
 import org.koitharu.kotatsu.shared.io.XdgAppPaths
+import java.util.concurrent.TimeUnit
 
 /** Where the user is. A plain stack; there is no navigation library on desktop. */
 sealed interface Screen {
@@ -146,6 +149,7 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 		ReaderExtrasFeature,
 		StatsFeature,
 		BackupFeature,
+		AppUpdateFeature,
 	)
 
 	/**
@@ -197,6 +201,21 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 
 	fun feature(id: String): Feature? = features.firstOrNull { it.id == id }
 
+	/**
+	 * For requests that are not to a manga source.
+	 *
+	 * Its own client rather than a source session's: those carry that source's headers
+	 * and cookie jar, and sending them to an unrelated host would be wrong. Short
+	 * timeouts because the only caller so far is a release check nobody is waiting on.
+	 */
+	val httpClient: OkHttpClient by lazy {
+		OkHttpClient.Builder()
+			.connectTimeout(10, TimeUnit.SECONDS)
+			.readTimeout(15, TimeUnit.SECONDS)
+			.callTimeout(30, TimeUnit.SECONDS)
+			.build()
+	}
+
 	/** Survives restarts; this is the app's only durable state. */
 	private val database = openLibraryDatabase(paths.data / DATABASE_FILE)
 
@@ -246,6 +265,8 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 		override val library get() = this@AppState.library
 		override val scope get() = this@AppState.scope
 		override fun clientFor(source: MangaParserSource) = this@AppState.sources.session(source).client
+
+		override val httpClient get() = this@AppState.httpClient
 
 		override suspend fun details(source: MangaParserSource, manga: Manga): Manga =
 			withContext(Dispatchers.IO) { sources.session(source).parser.getDetails(manga) }

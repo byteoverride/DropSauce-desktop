@@ -2,6 +2,8 @@ package org.koitharu.kotatsu.desktop.feature
 
 import androidx.compose.runtime.Composable
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import okhttp3.OkHttpClient
 import org.koitharu.kotatsu.desktop.image.ImageCache
 import org.koitharu.kotatsu.desktop.library.LibraryRepository
@@ -42,6 +44,16 @@ interface FeatureContext {
 	fun clientFor(source: MangaParserSource): OkHttpClient
 
 	/**
+	 * A client for everything that is not a manga source, such as this project's own
+	 * release feed.
+	 *
+	 * Separate from [clientFor] on purpose: those carry a source's headers and cookie jar
+	 * (DECISIONS.md D1), and sending a scanlation site's User-Agent and cookies to an
+	 * unrelated host would be both wrong and a small leak.
+	 */
+	val httpClient: OkHttpClient
+
+	/**
 	 * Full details for [manga], including its chapter list.
 	 *
 	 * Added because four separate areas needed a chapter list and each reached through
@@ -80,6 +92,16 @@ interface Feature {
 
 	/** Whether this area appears as a top-level destination. */
 	val isTopLevel: Boolean get() = true
+
+	/**
+	 * Emits true while this area has something the user has not seen, for a dot on the
+	 * navigation rail.
+	 *
+	 * Cold, and collected by the rail for as long as the window is open, so an area may
+	 * start whatever work answers the question when collection begins. Most areas have no
+	 * such question and take the default.
+	 */
+	fun badge(context: FeatureContext): Flow<Boolean> = flowOf(false)
 
 	/** The area's root screen. */
 	@Composable

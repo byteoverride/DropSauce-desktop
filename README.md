@@ -193,6 +193,16 @@ and category cleanup tools, and optional AniList or MyAnimeList tracking.
 Sources come from the `kotatsu-parsers` catalogue. Mihon extension APKs and LNReader JS
 plugins are Android-only and are **not** available on desktop.
 
+### Staying up to date
+
+The app checks this repository's releases once when it starts and puts a dot on the
+**App update** item in the sidebar when there is a newer build. That screen shows what
+changed and links to the package.
+
+It does not download or install anything for you. A `.deb` needs root, so the install
+stays yours to run. The only request it makes is to GitHub's public releases API, once
+per launch.
+
 ### Build it yourself
 
 ```bash

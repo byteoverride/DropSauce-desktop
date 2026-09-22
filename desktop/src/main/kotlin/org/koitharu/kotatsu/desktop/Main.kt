@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -158,10 +160,18 @@ private fun NavRail(state: AppState) {
 		// than an edit to this rail.
 		for (feature in state.features.filter { it.isTopLevel }) {
 			val destination = Screen.FeatureRoot(feature.id)
+			// Collected for as long as the window is open, which is also what lets an
+			// area do the work that answers the question. Most areas never emit true.
+			val badged by remember(feature) { feature.badge(state.featureContext) }
+				.collectAsState(false)
 			NavigationRailItem(
 				selected = state.root == destination,
 				onClick = { state.selectRoot(destination) },
-				icon = { Text(feature.glyph, style = MaterialTheme.typography.titleMedium) },
+				icon = {
+					BadgedBox(badge = { if (badged) Badge() }) {
+						Text(feature.glyph, style = MaterialTheme.typography.titleMedium)
+					}
+				},
 				label = { Text(feature.title) },
 			)
 		}

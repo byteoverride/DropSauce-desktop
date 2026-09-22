@@ -55,6 +55,8 @@ private class PreviewContext(root: Path) : FeatureContext {
 	private val client = OkHttpClient()
 	override fun clientFor(source: MangaParserSource): OkHttpClient = client
 
+	override val httpClient: OkHttpClient = client
+
 	override suspend fun details(source: MangaParserSource, manga: Manga): Manga =
 		withContext(Dispatchers.IO) { sources.session(source).parser.getDetails(manga) }
 

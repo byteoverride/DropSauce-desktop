@@ -725,6 +725,46 @@ the titles in "Marinate" that have passed 100 chapters, and moving them is the
 point. That action reuses `CurateRepository.moveToCategory`, which is already
 one transaction, rather than growing a second implementation of it.
 
+### D25. The app tells you about its own updates, and installs nothing
+
+Friends install this from a release page, and nothing brought them back to
+it. So the app checks, the same way the Android app does: one request to
+the public releases API when the window opens, no scheduler (D11), and a
+dot on the sidebar when there is something newer.
+
+`VersionId` is a deliberate copy of the Android app's, weighting included,
+so the two front ends of one project cannot disagree about which release
+is newer. Comparing version strings directly is the bug it exists to
+prevent: "0.9.10" sorts before "0.9.9" as text and after it as a version,
+which is the exact point at which an update check silently stops working.
+A test asserts both orderings so the trap is visible in the suite.
+
+The repository carries the Android project's tags too, so a release counts
+only if its tag starts `desktop-v` and it carries a `.deb`. Without that
+the desktop app would offer an APK.
+
+It does not download or install. A package needs root, and an app that
+fetched and ran an installer would be doing something nobody asked for.
+The screen hands over a link and the dpkg line.
+
+Failures are swallowed on purpose. The check is something the app does on
+its own, so being offline, rate limited or served nonsense must not be
+able to throw into the coroutine the navigation rail is collecting.
+
+Two contract changes came with it. `Feature.badge` lets an area put a dot
+on the rail, defaulting to never, which is also the hook that starts the
+check: the rail collects it for the life of the window. And
+`FeatureContext.httpClient` is a client for things that are not manga
+sources, kept apart from `clientFor` because those carry a source's
+headers and cookie jar and sending them to an unrelated host would be
+wrong.
+
+The version itself is declared once in `desktop/build.gradle.kts` and
+written to a generated resource, so the package and the running app cannot
+disagree about what is installed. A generated resource rather than the jar
+manifest because `:desktop:run` has no manifest, and a version that only
+works in the package is one you cannot test while developing it.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:

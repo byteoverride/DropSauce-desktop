@@ -283,6 +283,9 @@ private class FakeContext(
 	override fun clientFor(source: MangaParserSource): OkHttpClient =
 		error("no HTTP in this test")
 
+	override val httpClient: OkHttpClient
+		get() = error("no HTTP in this test")
+
 	override suspend fun details(source: MangaParserSource, manga: Manga): Manga =
 		error("the profiler's resolver is faked, so this must not be reached")
 

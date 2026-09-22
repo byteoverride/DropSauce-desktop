@@ -7,6 +7,40 @@ plugins {
 	alias(libs.plugins.kotlinx.serialization)
 }
 
+/**
+ * The one place the app's version is written.
+ *
+ * Both the package and the running app need it: the package so a .deb carries a version,
+ * and the app so it can tell whether a published release is newer than itself. Two
+ * hand-kept copies would drift, and the failure is silent, so it is declared here and
+ * fed to both.
+ */
+val appVersion = "0.9.9"
+
+/**
+ * Puts [appVersion] on the classpath, so the app can read its own version at runtime.
+ *
+ * A generated resource rather than the jar manifest: `:desktop:run` launches from a
+ * classes directory with no manifest at all, so a manifest-based version would work in
+ * the package and report nothing in development, which is where the update check gets
+ * tested.
+ */
+val generateVersionResource by tasks.registering {
+	val version = appVersion
+	val outputDir = layout.buildDirectory.dir("generated/appVersion")
+	inputs.property("appVersion", version)
+	outputs.dir(outputDir)
+	doLast {
+		val file = outputDir.get().asFile.resolve("dropsauce-version.properties")
+		file.parentFile.mkdirs()
+		file.writeText("version=$version\n")
+	}
+}
+
+sourceSets.named("main") {
+	resources.srcDir(generateVersionResource)
+}
+
 kotlin {
 	jvmToolchain(21)
 	compilerOptions {
@@ -66,7 +100,7 @@ compose.desktop {
 			// The display name, which is what a launcher shows. The deb package name
 			// must stay lowercase, so linux.packageName overrides it below.
 			packageName = "DropSauce"
-			packageVersion = "0.9.8"
+			packageVersion = appVersion
 			description = "A comic and novel reader"
 			vendor = "DropSauce"
 			licenseFile.set(rootProject.file("LICENSE"))
