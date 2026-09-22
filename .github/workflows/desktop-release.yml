@@ -1,0 +1,85 @@
+name: Desktop Release
+
+# Builds the Linux desktop .deb and attaches it to a GitHub release.
+#
+# Separate from release.yml, which builds the Android APK. The two ship on their own
+# schedules and neither should be able to fail the other, so they are separate workflows
+# on separate tag prefixes: desktop-v0.9.7 here, the Android tags there.
+#
+# The .deb bundles its own JRE via Compose's nativeDistributions, so what comes out does
+# not care what Java the person installing it has.
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Version to build, without the desktop-v prefix (e.g. 0.9.7)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deb:
+    name: Build .deb
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # jvmToolchain(21) in desktop/build.gradle.kts and shared/build.gradle.kts.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # jpackage shells out to these to lay out the package. They are not on the runner
+      # by default and the failure without them is a late one, after the whole build.
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot binutils
+
+      # The Android module is in the same Gradle build, so a desktop-only task still
+      # configures it. ANDROID_HOME is already set on ubuntu-latest, and this keeps the
+      # build from depending on a local.properties that is deliberately not committed.
+      - name: Build the package
+        run: ./gradlew :desktop:packageDeb --no-daemon
+
+      - name: Find the artifact
+        id: artifact
+        run: |
+          deb=$(ls desktop/build/compose/binaries/main/deb/*.deb | head -1)
+          echo "path=$deb" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$deb")" >> "$GITHUB_OUTPUT"
+          sha256sum "$deb" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: ${{ steps.artifact.outputs.path }}
+          if-no-files-found: error
+
+      # Only on a tag. A manual run is for checking the build still works, and should not
+      # quietly publish anything.
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" "${{ steps.artifact.outputs.path }}" \
+            --title "Desktop ${{ github.ref_name }}" \
+            --generate-notes \
+            || gh release upload "${{ github.ref_name }}" "${{ steps.artifact.outputs.path }}" --clobber

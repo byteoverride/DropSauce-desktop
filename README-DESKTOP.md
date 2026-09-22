@@ -31,7 +31,7 @@ The `.deb` lands at:
 desktop/build/compose/binaries/main/deb/dropsauce_<version>_amd64.deb
 ```
 
-It is about 54 MB and installs to `/opt/dropsauce`. It bundles its own
+It is about 66 MB and installs to `/opt/dropsauce`. It bundles its own
 Java runtime: `Depends:` lists only C libraries, no JVM, so it does not
 care what Java the host has. Install and remove with:
 

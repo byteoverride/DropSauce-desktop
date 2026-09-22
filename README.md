@@ -9,28 +9,47 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/HuzaifaKhalid1311/DropSauce/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/HuzaifaKhalid1311/DropSauce?style=for-the-badge&logo=github&label=latest"></a>
+  <a href="https://github.com/byteoverride/DropSauce-desktop/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/byteoverride/DropSauce-desktop?style=for-the-badge&logo=github&label=latest"></a>
   <a href="https://discord.com/channels/1435615296202477581/1435650246163169382/1435651186140119091"><img alt="Discord online users" src="https://img.shields.io/discord/1435615296202477581?style=for-the-badge&logo=discord&logoColor=white&label=discord&color=5865F2"></a>
-  <a href="https://github.com/HuzaifaKhalid1311/DropSauce/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/HuzaifaKhalid1311/DropSauce/total?style=for-the-badge&logo=github&label=downloads"></a>
-  <a href="LICENSE"><img alt="GPLv3 license" src="https://img.shields.io/github/license/HuzaifaKhalid1311/DropSauce?style=for-the-badge"></a>
+  <a href="https://github.com/byteoverride/DropSauce-desktop/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/byteoverride/DropSauce-desktop/total?style=for-the-badge&logo=github&label=downloads"></a>
+  <a href="LICENSE"><img alt="GPLv3 license" src="https://img.shields.io/github/license/byteoverride/DropSauce-desktop?style=for-the-badge"></a>
 </p>
 
 <p align="center">
   <a href="https://developer.android.com/"><img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
-  <a href="https://kotlinlang.org/"><img alt="Kotlin" src="https://img.shields.io/github/languages/top/HuzaifaKhalid1311/DropSauce?style=for-the-badge&logo=kotlin&logoColor=white"></a>
+  <a href="https://kotlinlang.org/"><img alt="Kotlin" src="https://img.shields.io/github/languages/top/byteoverride/DropSauce-desktop?style=for-the-badge&logo=kotlin&logoColor=white"></a>
   <a href="https://developer.android.com/compose"><img alt="Jetpack Compose" src="https://img.shields.io/badge/Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white"></a>
   <a href="https://m3.material.io/"><img alt="Material 3 Expressive" src="https://img.shields.io/badge/Material%203-Expressive-6750A4?style=for-the-badge&logo=materialdesign&logoColor=white"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/HuzaifaKhalid1311/DropSauce/releases/latest"><strong>Download APK</strong></a>
+  <a href="https://github.com/byteoverride/DropSauce-desktop/releases/latest"><strong>Download APK</strong></a>
   |
   <a href="https://drop-sauce.app"><strong>Website</strong></a>
   |
   <a href="https://discord.com/channels/1435615296202477581/1435650246163169382/1435651186140119091"><strong>Discord</strong></a>
   |
-  <a href="https://github.com/HuzaifaKhalid1311/DropSauce/issues"><strong>Issues</strong></a>
+  <a href="https://github.com/byteoverride/DropSauce-desktop/issues"><strong>Issues</strong></a>
 </p>
+
+---
+
+> ## This is a fork
+>
+> This repository is a fork of **[DropSauce](https://github.com/HuzaifaKhalid1311/DropSauce)**
+> by HuzaifaKhalid1311, which is itself derived from
+> [Kotatsu](https://github.com/KotatsuApp/Kotatsu). Maintained here by
+> [byteoverride](https://github.com/byteoverride).
+>
+> **What this fork adds:** a Compose Multiplatform **Linux desktop** application, built
+> from the same source tree and sharing its database and logic. See
+> [Linux desktop](#linux-desktop) below.
+>
+> The Android app is upstream's work and is **not** released from this fork. For Android
+> builds, the website, the Discord and the community, go to the
+> [upstream project](https://github.com/HuzaifaKhalid1311/DropSauce).
+>
+> GPL-3.0, same as upstream. Changes are recorded in the git history and in `DECISIONS.md`.
 
 ---
 
@@ -99,17 +118,71 @@ DropSauce is a free and open-source comic and novel reader for Android, built to
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=HuzaifaKhalid1311%2FDropSauce&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=byteoverride%2FDropSauce-desktop&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=HuzaifaKhalid1311/DropSauce&type=date&theme=dark&legend=top-left&sealed_token=WCXLPn5xBgloSjmN1d0FVz4b_AhpF7pqchA72IfTFnB7loTdSNmldj4dtjRPvy25mzYWw0HbOjwW5-L3IIKZPiwQNn6MXISsmwmCuCXLybr-2c5ByQ_Ycg" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=HuzaifaKhalid1311/DropSauce&type=date&legend=top-left&sealed_token=WCXLPn5xBgloSjmN1d0FVz4b_AhpF7pqchA72IfTFnB7loTdSNmldj4dtjRPvy25mzYWw0HbOjwW5-L3IIKZPiwQNn6MXISsmwmCuCXLybr-2c5ByQ_Ycg" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=HuzaifaKhalid1311/DropSauce&type=date&legend=top-left&sealed_token=WCXLPn5xBgloSjmN1d0FVz4b_AhpF7pqchA72IfTFnB7loTdSNmldj4dtjRPvy25mzYWw0HbOjwW5-L3IIKZPiwQNn6MXISsmwmCuCXLybr-2c5ByQ_Ycg" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=byteoverride/DropSauce-desktop&type=date&theme=dark&legend=top-left&sealed_token=WCXLPn5xBgloSjmN1d0FVz4b_AhpF7pqchA72IfTFnB7loTdSNmldj4dtjRPvy25mzYWw0HbOjwW5-L3IIKZPiwQNn6MXISsmwmCuCXLybr-2c5ByQ_Ycg" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=byteoverride/DropSauce-desktop&type=date&legend=top-left&sealed_token=WCXLPn5xBgloSjmN1d0FVz4b_AhpF7pqchA72IfTFnB7loTdSNmldj4dtjRPvy25mzYWw0HbOjwW5-L3IIKZPiwQNn6MXISsmwmCuCXLybr-2c5ByQ_Ycg" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=byteoverride/DropSauce-desktop&type=date&legend=top-left&sealed_token=WCXLPn5xBgloSjmN1d0FVz4b_AhpF7pqchA72IfTFnB7loTdSNmldj4dtjRPvy25mzYWw0HbOjwW5-L3IIKZPiwQNn6MXISsmwmCuCXLybr-2c5ByQ_Ycg" />
  </picture>
 </a>
 
+## Linux desktop
+
+A native desktop build of the reader, written in Compose Multiplatform. It is a second
+front end over the same shared logic, not a rewrite, and the Android app still builds
+untouched.
+
+### Install
+
+Grab `dropsauce_<version>_amd64.deb` from the
+[latest release](https://github.com/byteoverride/DropSauce-desktop/releases/latest):
+
+```bash
+sudo dpkg -i dropsauce_*_amd64.deb
+```
+
+Around 66 MB, installs to `/opt/dropsauce`, and bundles its own Java runtime, so it does
+not care what Java you have. Remove it with `sudo dpkg -r dropsauce`.
+
+Your library lives in `~/.local/share/dropsauce/`. Copy that directory somewhere safe
+before trying a new build if you care about what is in it.
+
+### What it does
+
+Library with categories, catalogue browsing and search, a webtoon reader, reading
+history, bookmarks, downloads for offline reading, importing local comics (CBZ and EPUB),
+backup and restore that round-trips with the Android app, reading statistics, duplicate
+and category cleanup tools, and optional AniList or MyAnimeList tracking.
+
+Sources come from the `kotatsu-parsers` catalogue. Mihon extension APKs and LNReader JS
+plugins are Android-only and are **not** available on desktop.
+
+### Build it yourself
+
+```bash
+./gradlew :desktop:run          # run it
+./gradlew :desktop:packageDeb   # build the .deb
+```
+
+Needs JDK 21. `dpkg-deb` and `fakeroot` are required for `packageDeb` and are already
+present on a normal Debian or Ubuntu install. The Android SDK is only needed for `:app`.
+
+### Known limits
+
+- Linux x86_64 only. No Windows or macOS packaging is set up.
+- Wayland runs through XWayland, since the app renders into an AWT window.
+- The reader is webtoon mode only. Paged modes are not implemented.
+- Very tall strips decode whole, as tiled decoding is not implemented yet.
+- AVIF pages and CBR archives cannot be decoded.
+- Tracking needs your own AniList or MyAnimeList OAuth application. No keys ship in the
+  source, and a service with nothing configured says so instead of failing oddly.
+
+Full detail, including where every file is written, is in
+[README-DESKTOP.md](README-DESKTOP.md).
+
 ## Install
 
-1. Open the [latest GitHub release](https://github.com/HuzaifaKhalid1311/DropSauce/releases/latest).
+1. Open the [latest GitHub release](https://github.com/byteoverride/DropSauce-desktop/releases/latest).
 2. Download the newest `DropSauce` APK.
 3. Install it on a compatible Android device.
 4. Add your preferred source or extension repository, then start reading.
@@ -175,9 +248,13 @@ Small fixes are welcome. Clear screenshots or short screen recordings are extra 
 
 DropSauce exists because of the work already done by the open-source Android manga reader community.
 
+Built on top of [DropSauce](https://github.com/HuzaifaKhalid1311/DropSauce) by HuzaifaKhalid1311, which this repository forks.
+
 Special thanks to the original [Kotatsu](https://github.com/KotatsuApp/Kotatsu) developers, [LNReader](https://github.com/LNReader/lnreader) developers, and the [Mihon](https://github.com/mihonapp/mihon) developers/community for the ideas, code, source ecosystem, and long-running maintenance work that helped shape projects like this.
 
 ## Certificate fingerprints
+
+> These are the **upstream** project's Android signing certificates. This fork releases the Linux desktop `.deb` only and publishes no signed APK, so nothing downloaded from here will match them.
 
 <div align="left">
 
