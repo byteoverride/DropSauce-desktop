@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
+import org.koitharu.kotatsu.desktop.feature.migration.MigrationFeature
 import org.koitharu.kotatsu.desktop.library.ChapterCountProgress
 import org.koitharu.kotatsu.desktop.library.LibraryItem
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
@@ -70,6 +71,10 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 	val missingCounts by remember(selected) { state.chapterCounts.observeMissing(selected) }
 		.collectAsState(0)
 	val countProgress by state.chapterCounts.progress.collectAsState()
+	// Counted from what is already on screen rather than by rescanning the library: the
+	// cards each resolve their own source anyway, and this way the number always agrees
+	// with the markers under them.
+	val unopenable = remember(all) { all.count { sourceHealth(it.sourceName) != SourceHealth.Ok } }
 
 	Column(Modifier.fillMaxSize()) {
 		TopBar(
@@ -92,6 +97,9 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 			onManage = { manageTarget = it },
 		)
 		ChapterFilterChips(selected = lengthFilter, onSelect = { lengthFilter = it; notice = null })
+		if (unopenable > 0) {
+			UnopenableBar(count = unopenable, onFix = { state.goToMigration() })
+		}
 		ChapterCountBar(
 			missing = missingCounts,
 			progress = countProgress,
@@ -138,7 +146,12 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 				modifier = Modifier.fillMaxSize(),
 			) {
 				items(items, key = { it.manga.id }) { item ->
-					LibraryCard(item = item, state = state, onOpen = onOpen)
+					LibraryCard(
+						item = item,
+						state = state,
+						onOpen = onOpen,
+						onFixSource = { state.goToMigration() },
+					)
 				}
 			}
 		}
@@ -245,6 +258,63 @@ enum class ChapterFilter(val label: String, private val range: IntRange?) {
  * in this app fills its counts in as titles are opened and never sees this bar; one that
  * arrived from a backup has no counts at all and cannot use the filter until it does.
  */
+/**
+ * Whether this build can actually open a title stored against [sourceName].
+ *
+ * Two ways to fail and they are not the same. The name may not be in the catalogue at
+ * all, which is what a library restored from an Android backup is full of: it carries
+ * Mihon and LNReader sources desktop has no parser for (DECISIONS.md D1). Or the source
+ * is present and the catalogue flags it broken, which is 380 of the 1270 (D18) and looks
+ * fine right up to the moment nothing loads.
+ *
+ * Mirrors [org.koitharu.kotatsu.desktop.feature.migration.EntryHealth], which the migrate
+ * area computes over the whole library. Kept as its own small function rather than
+ * scanning from here: the grid already resolves each card's source, and a second source
+ * of truth that disagreed with the markers would be worse than a little duplication.
+ */
+internal enum class SourceHealth { Ok, Broken, Missing }
+
+internal fun sourceHealth(sourceName: String): SourceHealth {
+	val source = MangaParserSource.entries.firstOrNull { it.name == sourceName }
+	return when {
+		source == null -> SourceHealth.Missing
+		source.isBroken -> SourceHealth.Broken
+		else -> SourceHealth.Ok
+	}
+}
+
+/** Sends the shell to the migrate area, which lists every entry that cannot be opened. */
+private fun AppState.goToMigration() {
+	feature(MigrationFeature.id)?.let { selectRoot(Screen.FeatureRoot(it.id)) }
+}
+
+/**
+ * Says how many titles in view cannot be opened, and offers the screen that repairs them.
+ *
+ * The migrate area could already fix all of this and nothing pointed at it. A card whose
+ * source is gone was inert: it said "source unavailable" and did nothing when clicked, so
+ * the repair existed only for someone who already knew to go looking for it.
+ */
+@Composable
+private fun UnopenableBar(count: Int, onFix: () -> Unit) {
+	Row(
+		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Text(
+			text = if (count == 1) {
+				"1 title here is on a source that cannot be opened."
+			} else {
+				"$count titles here are on a source that cannot be opened."
+			},
+			style = MaterialTheme.typography.bodyMedium,
+			color = MaterialTheme.colorScheme.error,
+		)
+		AssistChip(onClick = onFix, label = { Text("Fix sources") })
+	}
+}
+
 @Composable
 private fun ChapterCountBar(
 	missing: Int,
@@ -434,14 +504,20 @@ private fun LibraryCard(
 	item: LibraryItem,
 	state: AppState,
 	onOpen: (MangaParserSource, org.koitharu.kotatsu.parsers.model.Manga) -> Unit,
+	onFixSource: () -> Unit,
 ) {
 	val source = remember(item.sourceName) {
 		MangaParserSource.entries.firstOrNull { it.name == item.sourceName }
 	}
+	val health = remember(item.sourceName) { sourceHealth(item.sourceName) }
 	Column(
 		modifier = Modifier
 			.fillMaxWidth()
-			.clickable(enabled = source != null) { source?.let { onOpen(it, item.manga) } },
+			// Always clickable. A card that cannot be read leads to the repair instead of
+			// to the reader, which beats a card that swallows the click and does nothing.
+			.clickable {
+				if (health == SourceHealth.Ok && source != null) onOpen(source, item.manga) else onFixSource()
+			},
 		verticalArrangement = Arrangement.spacedBy(4.dp),
 	) {
 		RemoteImage(
@@ -470,11 +546,15 @@ private fun LibraryCard(
 			style = MaterialTheme.typography.labelSmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
-		if (source == null) {
-			// The stored source is not in this build's catalogue. Say so rather than
-			// silently doing nothing on click.
+		if (health != SourceHealth.Ok) {
+			// Name which of the two problems it is. A source flagged broken used to look
+			// identical to a working one here and only failed once the reader was open.
 			Text(
-				text = "source unavailable",
+				text = when (health) {
+					SourceHealth.Missing -> "source unavailable, tap to fix"
+					SourceHealth.Broken -> "source is broken, tap to fix"
+					SourceHealth.Ok -> ""
+				},
 				style = MaterialTheme.typography.labelSmall,
 				color = MaterialTheme.colorScheme.error,
 			)
