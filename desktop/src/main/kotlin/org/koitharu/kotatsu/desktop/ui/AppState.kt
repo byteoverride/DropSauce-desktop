@@ -75,6 +75,16 @@ sealed interface Screen {
 
 	data class Browse(val source: MangaParserSource) : Screen
 
+	/**
+	 * Looking for the same title on a source that actually has it.
+	 *
+	 * Its own screen rather than a mode of the migrate area, because it is reached from a
+	 * title rather than from a list of broken ones: a source whose parser works fine and
+	 * simply returns no chapters is not broken by any test the library scan can apply,
+	 * and it is the case a reader actually hits.
+	 */
+	data class FindAlternative(val source: MangaParserSource, val manga: Manga) : Screen
+
 	data class Details(val source: MangaParserSource, val manga: Manga) : Screen
 
 	/** A locally imported comic, whose pages come from an archive rather than a source. */

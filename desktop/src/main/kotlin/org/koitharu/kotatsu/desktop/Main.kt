@@ -44,6 +44,9 @@ import org.koitharu.kotatsu.desktop.ui.DetailsScreen
 import org.koitharu.kotatsu.desktop.ui.HistoryScreen
 import org.koitharu.kotatsu.desktop.ui.LibraryScreen
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
+import org.koitharu.kotatsu.desktop.feature.migration.EntryHealth
+import org.koitharu.kotatsu.desktop.feature.migration.LibraryEntry
+import org.koitharu.kotatsu.desktop.feature.migration.MigrationScreen
 import org.koitharu.kotatsu.desktop.ui.ErrorBox
 import org.koitharu.kotatsu.desktop.ui.LocalPageSource
 import org.koitharu.kotatsu.desktop.ui.RemotePageSource
@@ -247,6 +250,28 @@ private fun Router(state: AppState) {
 			}
 		}
 
+		is Screen.FindAlternative -> MigrationScreen(
+			context = state.featureContext,
+			entry = LibraryEntry(
+				manga = screen.manga,
+				sourceName = screen.source.name,
+				source = screen.source,
+				// The source resolves and is not flagged: its only fault is having
+				// nothing to read, which no scan of the library can detect.
+				health = EntryHealth.OK,
+				isFavourite = false,
+				hasHistory = false,
+			),
+			onBack = state::back,
+			onMigrated = {
+				// Twice: the details screen underneath is showing the title that just
+				// moved, so returning to it would show an entry whose favourites and
+				// history now belong to something else.
+				state.back()
+				state.back()
+			},
+		)
+
 		is Screen.Browse -> BrowseScreen(
 			state = state,
 			source = screen.source,
@@ -263,6 +288,7 @@ private fun Router(state: AppState) {
 				state.go(Screen.Reader(screen.source, screen.manga, chapters, index, page))
 			},
 			onOpenRelated = { source, manga -> state.go(Screen.Details(source, manga)) },
+			onFindAlternative = { loaded -> state.go(Screen.FindAlternative(screen.source, loaded)) },
 		)
 
 		is Screen.LocalReader -> ReaderScreen(

@@ -64,6 +64,12 @@ fun DetailsScreen(
 	onBack: () -> Unit,
 	onRead: (List<MangaChapter>, Int, Int) -> Unit,
 	onOpenRelated: (MangaParserSource, Manga) -> Unit = { _, _ -> },
+	/**
+	 * Takes the loaded title, not the seed the screen was opened with. Migration matches
+	 * the reading position against the old chapter list, and the seed carries none, so
+	 * handing over the seed would make it refetch what this screen already has.
+	 */
+	onFindAlternative: (Manga) -> Unit = {},
 ) {
 	val session = remember(source) { state.sources.session(source) }
 	var manga by remember(seed.id) { mutableStateOf(seed) }
@@ -172,6 +178,9 @@ fun DetailsScreen(
 				OutlinedButton(onClick = { choosingDownload = true }) {
 					Text(if (done > 0) "Download ($done saved)" else "Download")
 				}
+				// Not only for the empty case. A source that returns a stale or truncated
+				// chapter list looks perfectly healthy and is the same problem.
+				OutlinedButton(onClick = { onFindAlternative(manga) }) { Text("Other sources") }
 			}
 		}
 		downloadNotice?.let { message ->
@@ -202,11 +211,20 @@ fun DetailsScreen(
 				}
 				if (chapters.isEmpty()) {
 					item {
-						Text(
-							text = "This source returned no chapters for this title.",
-							style = MaterialTheme.typography.bodyMedium,
+						Column(
 							modifier = Modifier.padding(20.dp),
-						)
+							verticalArrangement = Arrangement.spacedBy(10.dp),
+						) {
+							Text(
+								text = "This source returned no chapters for this title. " +
+									"That usually means the source has dropped it or has not " +
+									"published any yet, and another source may still have it.",
+								style = MaterialTheme.typography.bodyMedium,
+							)
+							Button(onClick = { onFindAlternative(manga) }) {
+								Text("Find it on another source")
+							}
+						}
 					}
 				} else {
 					item {

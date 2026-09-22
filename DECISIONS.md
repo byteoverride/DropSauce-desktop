@@ -799,6 +799,39 @@ is a judgement, but the failure mode is not: an area that defaults into
 the rail is how it got to eighteen, so the default now has to be argued
 with in a test rather than merely noticed later.
 
+### D27. A source with no chapters is a dead end, and gets a way out
+
+The migrate area was built around `LibraryScanner`, which can see exactly
+two problems: a stored source with no parser, and one the catalogue flags
+broken. A source that answers normally and returns an empty chapter list
+passes both tests. It is also the case a reader actually hits, and the
+details screen said "This source returned no chapters for this title" and
+stopped there.
+
+The details screen now offers the same migrate screen, reached from the
+title rather than from a list of broken ones. `MigrationScreen` is a plain
+composable over a `LibraryEntry`, so the shell constructs one with
+`EntryHealth.OK` and reuses the whole thing: the streamed search, the
+ranking, chapter matching, the confirmation. A second picker built beside
+it would have been a second thing to keep correct.
+
+Offered whenever the details screen is open, not only when the list is
+empty. A source that returns a stale or truncated chapter list looks
+perfectly healthy and is the same problem.
+
+The callback hands over the loaded title rather than the seed the screen
+was opened with. Migration matches the reading position against the old
+chapter list, and the seed carries none, so passing the seed would make it
+refetch what the screen already had.
+
+After a migration the shell pops twice. The details screen underneath is
+showing the title that just moved, and returning to it would show an entry
+whose favourites and history now belong to something else.
+
+`MigrationResult.describe()` already ends "nothing to move", so running
+this on a title that was never in the library reports itself honestly
+rather than claiming a migration that did nothing.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:
