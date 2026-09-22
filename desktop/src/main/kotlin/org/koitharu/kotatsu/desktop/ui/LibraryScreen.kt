@@ -179,7 +179,12 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 			onConfirm = { target ->
 				val ids = items.map { it.manga.id }
 				val from = selected
-				scope.launch {
+				// The app scope, not the composition's. moveToCategory runs in one
+				// immediate transaction, so cancelling it halfway rolls the whole move
+				// back: leaving the library while 130 titles were being refiled undid all
+				// of it and said nothing, because the coroutine that would have reported
+				// it died with the screen.
+				state.scope.launch {
 					val result = if (from == null) {
 						// Nothing to move out of: "All" is a view over every category, so
 						// the only well-defined action is filing the titles as well.
@@ -274,8 +279,20 @@ enum class ChapterFilter(val label: String, private val range: IntRange?) {
  */
 internal enum class SourceHealth { Ok, Broken, Missing }
 
+/**
+ * The catalogue indexed by name, built once.
+ *
+ * [sourceHealth] is asked once per card and once per title behind the banner, and a
+ * linear scan of 1270 entries each time is around 450 thousand string comparisons for a
+ * library this size, on the frame thread, every time the list changes. A library four
+ * times larger would drop frames on every scroll. The map makes it a hash lookup.
+ */
+private val catalogueByName: Map<String, MangaParserSource> by lazy {
+	MangaParserSource.entries.associateBy { it.name }
+}
+
 internal fun sourceHealth(sourceName: String): SourceHealth {
-	val source = MangaParserSource.entries.firstOrNull { it.name == sourceName }
+	val source = catalogueByName[sourceName]
 	return when {
 		source == null -> SourceHealth.Missing
 		source.isBroken -> SourceHealth.Broken
@@ -506,9 +523,7 @@ private fun LibraryCard(
 	onOpen: (MangaParserSource, org.koitharu.kotatsu.parsers.model.Manga) -> Unit,
 	onFixSource: () -> Unit,
 ) {
-	val source = remember(item.sourceName) {
-		MangaParserSource.entries.firstOrNull { it.name == item.sourceName }
-	}
+	val source = remember(item.sourceName) { catalogueByName[item.sourceName] }
 	val health = remember(item.sourceName) { sourceHealth(item.sourceName) }
 	Column(
 		modifier = Modifier

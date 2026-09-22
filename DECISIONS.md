@@ -702,6 +702,24 @@ browsed, and 100 falls inside "26 to 100" and then spans two more buckets: as a
 partition the question costs three passes and files the boundary title wrongly.
 Inclusive of 100, since that is what the rule says.
 
+A refresh is bounded twice: four requests overall, and never more than two
+against the same source. The global ceiling alone says nothing about where
+the requests go, and a library is not spread evenly. One real shelf here is
+224 titles on a single site, which the global ceiling would have pointed
+four at a time at that one host for minutes. The likely reply is throttling,
+and a throttled response is indistinguishable from a dead source at this
+layer: it counts as failed, stores nothing and is never retried. The run
+would have reported hundreds of failures and looked broken when the only
+fault was its own manners. Source permit first, then the global one, so
+workers queued on one busy source cannot hold every permit there is.
+
+Progress is merged forward rather than assigned. Two atomic counters read
+and written as a pair are not atomic together, and four workers finishing
+at once could publish a stale lower count over a higher one, so the bar
+walked backwards. A test drives twenty four titles with uneven delays and
+asserts the sequence never decreases; it fails reliably against the
+assigning version.
+
 Filtering a category is not the goal, refiling it is: the filter is how you find
 the titles in "Marinate" that have passed 100 chapters, and moving them is the
 point. That action reuses `CurateRepository.moveToCategory`, which is already
