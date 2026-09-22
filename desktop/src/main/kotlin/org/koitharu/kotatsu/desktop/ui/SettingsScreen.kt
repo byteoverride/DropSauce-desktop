@@ -170,7 +170,7 @@ private fun ToolRow(
 	context: org.koitharu.kotatsu.desktop.feature.FeatureContext,
 	onOpen: () -> Unit,
 ) {
-	val badged by remember(feature) { feature.badge(context) }.collectAsState(false)
+	val badged by remember(feature) { feature.badge(context) }.collectAsState(0)
 	Row(
 		modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(vertical = 10.dp),
 		verticalAlignment = Alignment.CenterVertically,
@@ -178,8 +178,8 @@ private fun ToolRow(
 	) {
 		Text(feature.glyph, style = MaterialTheme.typography.titleMedium)
 		Text(feature.settingsTitle, style = MaterialTheme.typography.bodyLarge)
-		if (badged) {
-			Badge()
+		if (badged > 0) {
+			Badge { Text(if (badged > 99) "99+" else badged.toString()) }
 		}
 		Spacer(Modifier.weight(1f))
 		Text("\u203A", style = MaterialTheme.typography.titleMedium)

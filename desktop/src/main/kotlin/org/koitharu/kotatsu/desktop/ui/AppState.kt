@@ -215,7 +215,7 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 	fun feature(id: String): Feature? = features.firstOrNull { it.id == id }
 
 	/**
-	 * True while any tool inside Settings has something to report.
+	 * How much the tools inside Settings have to report, added together.
 	 *
 	 * Those areas have no rail slot of their own any more, so without this their dot
 	 * would only ever be seen by someone who had already gone looking for it.
@@ -223,10 +223,10 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 	 * `combine` over an empty list never emits, which would leave the rail waiting on a
 	 * flow that says nothing, so the empty case is its own answer.
 	 */
-	fun toolsBadge(): Flow<Boolean> {
+	fun toolsBadge(): Flow<Int> {
 		val tools = features.filter { !it.isTopLevel }
-		if (tools.isEmpty()) return flowOf(false)
-		return combine(tools.map { it.badge(featureContext) }) { flags -> flags.any { it } }
+		if (tools.isEmpty()) return flowOf(0)
+		return combine(tools.map { it.badge(featureContext) }) { counts -> counts.sum() }
 	}
 
 	/**

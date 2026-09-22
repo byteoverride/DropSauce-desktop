@@ -124,6 +124,11 @@ fun UpdatesScreen(context: FeatureContext, navigator: FeatureNavigator) {
 										total = t
 									}
 									runResult = summary.describe()
+									// Show the whole watch list once a run finishes. The
+									// interesting answer is often "nothing changed", and
+									// filtering to new chapters renders that as an empty
+									// screen that looks like the check never happened.
+									showAll = true
 								} catch (e: CancellationException) {
 									throw e
 								} catch (e: Throwable) {

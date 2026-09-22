@@ -56,11 +56,13 @@ object AppUpdateFeature : Feature {
 	 * Android app, which checks once per launch, and it keeps desktop clear of the
 	 * scheduling DECISIONS.md D11 rules out.
 	 */
-	override fun badge(context: FeatureContext): Flow<Boolean> {
+	override fun badge(context: FeatureContext): Flow<Int> {
 		val repository = repository(context)
 		return repository.observeAvailableUpdate()
 			.onStart { repository.refreshOnce() }
-			.map { it != null }
+			// One, or none. There is only ever a newest release, so a larger number here
+			// would be inventing a quantity to fill a space.
+			.map { if (it == null) 0 else 1 }
 	}
 
 	@Composable

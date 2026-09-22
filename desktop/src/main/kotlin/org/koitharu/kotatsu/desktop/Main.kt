@@ -154,7 +154,7 @@ private fun NavRail(state: AppState) {
 		Spacer(Modifier.height(12.dp))
 		// The tools live inside Settings now, so their dot has to surface here or it is
 		// invisible until someone happens to open Settings.
-		val toolsBadged by remember(state) { state.toolsBadge() }.collectAsState(false)
+		val toolsBadged by remember(state) { state.toolsBadge() }.collectAsState(0)
 		for ((destination, item) in ROOTS) {
 			val (glyph, label) = item
 			NavigationRailItem(
@@ -164,7 +164,14 @@ private fun NavRail(state: AppState) {
 				// hit target around the icon, so an empty one leaves an item that is
 				// awkward to click even though it renders fine.
 				icon = {
-					BadgedBox(badge = { if (destination == Screen.Settings && toolsBadged) Badge() }) {
+					BadgedBox(
+						badge = {
+							// A plain dot for Settings: it stands in for several areas at
+							// once, and a number summed across them would be adding up
+							// things that have nothing to do with each other.
+							if (destination == Screen.Settings && toolsBadged > 0) Badge()
+						},
+					) {
 						Text(glyph, style = MaterialTheme.typography.titleMedium)
 					}
 				},
@@ -178,12 +185,21 @@ private fun NavRail(state: AppState) {
 			// Collected for as long as the window is open, which is also what lets an
 			// area do the work that answers the question. Most areas never emit true.
 			val badged by remember(feature) { feature.badge(state.featureContext) }
-				.collectAsState(false)
+				.collectAsState(0)
 			NavigationRailItem(
 				selected = state.root == destination,
 				onClick = { state.selectRoot(destination) },
 				icon = {
-					BadgedBox(badge = { if (badged) Badge() }) {
+					BadgedBox(
+						badge = {
+							// The number, not a dot. "Something is new" and "twelve things
+							// are new" decide different things. Capped in the text rather
+							// than the value, so a big number cannot widen the rail.
+							if (badged > 0) {
+								Badge { Text(if (badged > 99) "99+" else badged.toString()) }
+							}
+						},
+					) {
 						Text(feature.glyph, style = MaterialTheme.typography.titleMedium)
 					}
 				},

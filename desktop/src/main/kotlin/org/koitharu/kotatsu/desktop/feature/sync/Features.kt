@@ -2,7 +2,6 @@ package org.koitharu.kotatsu.desktop.feature.sync
 
 import androidx.compose.runtime.Composable
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import org.koitharu.kotatsu.desktop.feature.Feature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
@@ -32,14 +31,14 @@ object BackupFeature : Feature {
 object UpdatesFeature : Feature {
 
 	/**
-	 * A dot while any tracked title has chapters the reader has not seen.
+	 * How many tracked titles have chapters the reader has not seen.
 	 *
-	 * Without it the count only exists on the screen that shows it, so the answer to
-	 * "has anything I follow updated" was to go and look. The Android app puts the same
-	 * thing on its navigation.
+	 * The number rather than a dot: this count already existed and lived only on the
+	 * screen you had to open to see it, and "three" and "forty" are worth knowing apart
+	 * before deciding to go there.
 	 */
-	override fun badge(context: FeatureContext): Flow<Boolean> =
-		context.db.tracksDao().observeUpdatedCount().map { it > 0 }
+	override fun badge(context: FeatureContext): Flow<Int> =
+		context.db.tracksDao().observeUpdatedCount()
 
 	override val id: String = "updates"
 

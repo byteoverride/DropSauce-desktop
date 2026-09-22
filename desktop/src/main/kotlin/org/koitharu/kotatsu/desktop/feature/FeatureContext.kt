@@ -107,14 +107,17 @@ interface Feature {
 	val settingsTitle: String get() = title
 
 	/**
-	 * Emits true while this area has something the user has not seen, for a dot on the
-	 * navigation rail.
+	 * How many things this area has that the reader has not seen.
+	 *
+	 * Zero draws nothing. Anything else draws the number on the navigation rail, because
+	 * "something is new" and "twelve things are new" are different pieces of information
+	 * and the second one is the one that decides whether to go and look now.
 	 *
 	 * Cold, and collected by the rail for as long as the window is open, so an area may
 	 * start whatever work answers the question when collection begins. Most areas have no
 	 * such question and take the default.
 	 */
-	fun badge(context: FeatureContext): Flow<Boolean> = flowOf(false)
+	fun badge(context: FeatureContext): Flow<Int> = flowOf(0)
 
 	/** The area's root screen. */
 	@Composable
