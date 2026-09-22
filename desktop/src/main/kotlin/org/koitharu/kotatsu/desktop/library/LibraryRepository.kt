@@ -118,6 +118,16 @@ class LibraryRepository(private val db: LibraryDatabase) {
 	 */
 	suspend fun backfillChapterCounts(): Int = db.mangaDao().backfillChaptersCountFromHistory()
 
+	/**
+	 * Saved titles with chapters the reader has not seen, by id.
+	 *
+	 * Read from `tracks`, which the updates check writes. A title only appears here once
+	 * it is being tracked, so the library marks what the app actually knows rather than
+	 * implying it checks everything.
+	 */
+	fun observeTitlesWithNewChapters(): Flow<Set<Long>> =
+		db.tracksDao().observeUpdatedIds().map { it.toSet() }
+
 	fun observeHistory(limit: Int = HISTORY_LIMIT): Flow<List<HistoryItem>> =
 		db.historyDao().observeRecent(limit).map { rows ->
 			rows.map {

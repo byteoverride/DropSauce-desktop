@@ -75,6 +75,11 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 	// cards each resolve their own source anyway, and this way the number always agrees
 	// with the markers under them.
 	val unopenable = remember(all) { all.count { sourceHealth(it.sourceName) != SourceHealth.Ok } }
+	// Which titles have chapters the reader has not seen. Knowing that on the shelf is
+	// the point: the updates screen already knew and the library, where you actually
+	// choose what to read, did not.
+	val updatedIds by remember { state.library.observeTitlesWithNewChapters() }
+		.collectAsState(emptySet())
 
 	Column(Modifier.fillMaxSize()) {
 		TopBar(
@@ -149,6 +154,7 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 					LibraryCard(
 						item = item,
 						state = state,
+						hasNewChapters = item.manga.id in updatedIds,
 						onOpen = onOpen,
 						onFixSource = { state.goToMigration() },
 					)
@@ -527,6 +533,7 @@ private fun EmptyLibrary(hasCategories: Boolean) {
 private fun LibraryCard(
 	item: LibraryItem,
 	state: AppState,
+	hasNewChapters: Boolean,
 	onOpen: (MangaParserSource, org.koitharu.kotatsu.parsers.model.Manga) -> Unit,
 	onFixSource: () -> Unit,
 ) {
@@ -568,6 +575,13 @@ private fun LibraryCard(
 			style = MaterialTheme.typography.labelSmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
+		if (hasNewChapters) {
+			Text(
+				text = "new chapters",
+				style = MaterialTheme.typography.labelSmall,
+				color = MaterialTheme.colorScheme.primary,
+			)
+		}
 		if (health != SourceHealth.Ok) {
 			// Name which of the two problems it is. A source flagged broken used to look
 			// identical to a working one here and only failed once the reader was open.

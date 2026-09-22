@@ -313,6 +313,11 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 		// idempotent and local, so it runs on every start rather than waiting for the
 		// user to press anything.
 		scope.launch { library.backfillChapterCounts() }
+		// A track row whose title is gone crashes the updates tab when Room tries to
+		// resolve its non-null relation. The read now filters them out so the screen is
+		// safe either way, but leaving them in the table means the count on the tab and
+		// the list under it could disagree.
+		scope.launch { database.tracksDao().deleteOrphans() }
 		// Settings that other components cache have to be pushed when they change.
 		scope.launch {
 			var previousUserAgent = settings.data.value.userAgent

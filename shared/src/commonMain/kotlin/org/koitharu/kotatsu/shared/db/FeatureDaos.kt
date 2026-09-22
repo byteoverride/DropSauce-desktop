@@ -129,11 +129,39 @@ data class MangaTime(
 @Dao
 interface TracksDao {
 
-	@Query("SELECT * FROM tracks ORDER BY last_check ASC")
+	/**
+	 * Tracked titles that still have a manga row.
+	 *
+	 * The `manga_id IN` is not redundant. [TrackWithManga.manga] is non-null, so Room
+	 * throws `Relationship item 'manga' was expected to be NON-NULL` for a track whose
+	 * manga row has gone, and it throws inside the flow on the UI thread, which takes the
+	 * window down and leaves the updates tab unopenable until the row is removed.
+	 *
+	 * There is a foreign key with ON DELETE CASCADE that should make that impossible, and
+	 * a test proves it is enforced and does cascade. It happened anyway. Rather than
+	 * guess which write got around it, the read is made incapable of producing the crash:
+	 * an orphan is not worth showing and is certainly not worth losing the window for.
+	 */
+	@Query("SELECT * FROM tracks WHERE manga_id IN (SELECT manga_id FROM manga) ORDER BY last_check ASC")
 	fun observeAll(): Flow<List<TrackWithManga>>
 
-	@Query("SELECT * FROM tracks WHERE chapters_new > 0 ORDER BY last_chapter_date DESC")
+	@Query(
+		"SELECT * FROM tracks WHERE chapters_new > 0 AND manga_id IN (SELECT manga_id FROM manga) " +
+			"ORDER BY last_chapter_date DESC",
+	)
 	fun observeWithUpdates(): Flow<List<TrackWithManga>>
+
+	/** How many tracked titles have chapters the reader has not seen. */
+	@Query("SELECT COUNT(*) FROM tracks WHERE chapters_new > 0 AND manga_id IN (SELECT manga_id FROM manga)")
+	fun observeUpdatedCount(): Flow<Int>
+
+	/** Titles with something new, for marking them where the reader keeps them. */
+	@Query("SELECT manga_id FROM tracks WHERE chapters_new > 0")
+	fun observeUpdatedIds(): Flow<List<Long>>
+
+	/** Removes track rows whose title is gone. Cheap, and keeps the table honest. */
+	@Query("DELETE FROM tracks WHERE manga_id NOT IN (SELECT manga_id FROM manga)")
+	suspend fun deleteOrphans(): Int
 
 	@Query("SELECT * FROM tracks WHERE manga_id = :mangaId")
 	suspend fun find(mangaId: Long): TrackEntity?
