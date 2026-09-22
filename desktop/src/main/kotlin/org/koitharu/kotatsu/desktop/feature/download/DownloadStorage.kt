@@ -16,11 +16,22 @@ import okio.Path
  * truncated `0007.jpg` that a later read would treat as a valid page.
  */
 class DownloadStorage(
-	private val root: Path,
+	/**
+	 * Where downloads go, read fresh every time rather than captured once.
+	 *
+	 * The reader can change this in Settings and a queue is long lived, so a root fixed
+	 * at construction would keep writing to the old place until the app restarted, with
+	 * nothing on screen to say so.
+	 */
+	private val rootProvider: () -> Path,
 	private val fileSystem: FileSystem = FileSystem.SYSTEM,
 ) {
 
-	val downloadsRoot: Path get() = root / DIR
+	/** For a fixed location, which is every caller that is not the running app. */
+	constructor(root: Path, fileSystem: FileSystem = FileSystem.SYSTEM) :
+		this({ root / DIR }, fileSystem)
+
+	val downloadsRoot: Path get() = rootProvider()
 
 	fun mangaDir(sourceName: String, mangaId: Long): Path =
 		downloadsRoot / safeName(sourceName) / mangaId.toString()

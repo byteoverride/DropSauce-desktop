@@ -65,6 +65,20 @@ data class SettingsData(
 	/** How many times to re-request a page image before giving up on it. */
 	@SerialName("page_attempts") val pageAttempts: Int = 3,
 	@SerialName("user_agent") val userAgent: String = DEFAULT_USER_AGENT,
+	/**
+	 * Where downloaded chapters are written, or null for the default under the app's own
+	 * data directory.
+	 *
+	 * A reader with a large library wants this on the drive that has room for it, which
+	 * is rarely the one holding a dotfile directory. Stored as the folder itself rather
+	 * than a parent to create "downloads" inside: the reader picked a folder and that is
+	 * where their files should be.
+	 *
+	 * Changing it never moves or forgets anything already downloaded. Each download
+	 * records where its pages went, and reads follow that, so old chapters keep working
+	 * from the old place and new ones go to the new one.
+	 */
+	@SerialName("download_dir") val downloadDir: String? = null,
 ) {
 
 	companion object {

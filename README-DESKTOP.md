@@ -61,6 +61,13 @@ requires.
 Deleting `library.db` resets the library. Deleting anything under
 `~/.cache/dropsauce` while the app is closed is always safe.
 
+The downloads folder can be moved in **Settings, Storage, Downloads
+folder**, which is worth doing if your library is large: a dotfile
+directory is rarely on the drive with room for it. Changing it copies
+nothing. Each download records where its pages went and reads follow
+that, so chapters already saved keep working from the old folder and new
+ones go to the new one.
+
 ## Module layout
 
 ```

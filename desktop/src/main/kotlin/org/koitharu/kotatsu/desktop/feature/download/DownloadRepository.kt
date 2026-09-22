@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import okio.Path
+import okio.Path.Companion.toPath
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
@@ -121,6 +122,15 @@ class DownloadRepository internal constructor(
 	suspend fun localPagePaths(mangaId: Long, chapterId: Long): List<Path> {
 		val row = db.downloadsDao().find(mangaId, chapterId) ?: return emptyList()
 		if (row.state != DownloadState.DONE) return emptyList()
+		// Where the pages actually went, which the worker recorded when it wrote them.
+		// Recomputing it from the current root was fine while the root could never
+		// change; now that it is a setting, doing so would orphan every chapter
+		// downloaded before the reader moved their downloads folder, while the files sat
+		// on disk and the row still said DONE.
+		val recorded = row.path.takeIf { it.isNotBlank() }?.toPath()
+		if (recorded != null && storage.exists(recorded)) {
+			return storage.pages(recorded)
+		}
 		val sourceName = db.mangaDao().find(mangaId)?.source ?: return emptyList()
 		return storage.pages(storage.chapterDir(sourceName, mangaId, chapterId))
 	}
@@ -195,7 +205,9 @@ class DownloadRepository internal constructor(
 
 		/** Builds the feature's repository against a [FeatureContext]. */
 		fun create(context: FeatureContext, scope: CoroutineScope = context.scope): DownloadRepository {
-			val storage = DownloadStorage(context.paths.data)
+			// Read per call, so changing the folder in Settings takes effect on the next
+			// chapter rather than at the next restart.
+			val storage = DownloadStorage({ downloadsRootFor(context) })
 			val pageSource = ParserPageSource(context.sources) { context.clientFor(it) }
 			return DownloadRepository(
 				db = context.db,
@@ -210,6 +222,22 @@ class DownloadRepository internal constructor(
 			)
 		}
 	}
+}
+
+/**
+ * The folder downloads are written to right now.
+ *
+ * A blank or unusable setting falls back to the default rather than refusing to
+ * download: the setting is a convenience, and a typo in it should not be the reason a
+ * chapter cannot be saved.
+ */
+internal fun downloadsRootFor(context: FeatureContext): Path {
+    val configured = context.settings.data.value.downloadDir?.trim()
+    if (!configured.isNullOrEmpty()) {
+        val path = configured.toPath()
+        if (path.isAbsolute) return path
+    }
+    return context.paths.data / "downloads"
 }
 
 /** First emission of a DAO flow, for the one-shot reads that Room only exposes as a flow. */
