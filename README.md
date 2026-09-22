@@ -10,26 +10,26 @@
 
 <p align="center">
   <a href="https://github.com/byteoverride/DropSauce-desktop/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/byteoverride/DropSauce-desktop?style=for-the-badge&logo=github&label=latest"></a>
-  <a href="https://discord.com/channels/1435615296202477581/1435650246163169382/1435651186140119091"><img alt="Discord online users" src="https://img.shields.io/discord/1435615296202477581?style=for-the-badge&logo=discord&logoColor=white&label=discord&color=5865F2"></a>
   <a href="https://github.com/byteoverride/DropSauce-desktop/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/byteoverride/DropSauce-desktop/total?style=for-the-badge&logo=github&label=downloads"></a>
   <a href="LICENSE"><img alt="GPLv3 license" src="https://img.shields.io/github/license/byteoverride/DropSauce-desktop?style=for-the-badge"></a>
 </p>
 
 <p align="center">
-  <a href="https://developer.android.com/"><img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
+  <a href="#linux-desktop"><img alt="Linux x86_64" src="https://img.shields.io/badge/Linux-x86__64-FCC624?style=for-the-badge&logo=linux&logoColor=black"></a>
+  <a href="https://developer.android.com/"><img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B%20(upstream)-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
   <a href="https://kotlinlang.org/"><img alt="Kotlin" src="https://img.shields.io/github/languages/top/byteoverride/DropSauce-desktop?style=for-the-badge&logo=kotlin&logoColor=white"></a>
   <a href="https://developer.android.com/compose"><img alt="Jetpack Compose" src="https://img.shields.io/badge/Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white"></a>
   <a href="https://m3.material.io/"><img alt="Material 3 Expressive" src="https://img.shields.io/badge/Material%203-Expressive-6750A4?style=for-the-badge&logo=materialdesign&logoColor=white"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/byteoverride/DropSauce-desktop/releases/latest"><strong>Download APK</strong></a>
+  <a href="https://github.com/byteoverride/DropSauce-desktop/releases/latest"><strong>Download for Linux</strong></a>
   |
-  <a href="https://drop-sauce.app"><strong>Website</strong></a>
-  |
-  <a href="https://discord.com/channels/1435615296202477581/1435650246163169382/1435651186140119091"><strong>Discord</strong></a>
+  <a href="https://github.com/HuzaifaKhalid1311/DropSauce/releases/latest"><strong>Android APK (upstream)</strong></a>
   |
   <a href="https://github.com/byteoverride/DropSauce-desktop/issues"><strong>Issues</strong></a>
+  |
+  <a href="https://drop-sauce.app"><strong>Upstream website</strong></a>
 </p>
 
 ---
@@ -55,7 +55,9 @@
 
 ## About
 
-DropSauce is a free and open-source comic and novel reader for Android, built to feel quick, clean, and comfortable to use with a lot of features
+DropSauce is a free and open-source comic and novel reader, built to feel quick, clean and
+comfortable to use. Upstream targets Android; this fork adds a native **Linux desktop**
+build from the same source tree.
 
 ⭐Please give the repo a star if you like the project. It helps more people find it.🌟
 
@@ -116,16 +118,6 @@ DropSauce is a free and open-source comic and novel reader for Android, built to
 
 </details>
 
-## Star History
-
-<a href="https://www.star-history.com/?repos=byteoverride%2FDropSauce-desktop&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=byteoverride/DropSauce-desktop&type=date&theme=dark&legend=top-left&sealed_token=WCXLPn5xBgloSjmN1d0FVz4b_AhpF7pqchA72IfTFnB7loTdSNmldj4dtjRPvy25mzYWw0HbOjwW5-L3IIKZPiwQNn6MXISsmwmCuCXLybr-2c5ByQ_Ycg" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=byteoverride/DropSauce-desktop&type=date&legend=top-left&sealed_token=WCXLPn5xBgloSjmN1d0FVz4b_AhpF7pqchA72IfTFnB7loTdSNmldj4dtjRPvy25mzYWw0HbOjwW5-L3IIKZPiwQNn6MXISsmwmCuCXLybr-2c5ByQ_Ycg" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=byteoverride/DropSauce-desktop&type=date&legend=top-left&sealed_token=WCXLPn5xBgloSjmN1d0FVz4b_AhpF7pqchA72IfTFnB7loTdSNmldj4dtjRPvy25mzYWw0HbOjwW5-L3IIKZPiwQNn6MXISsmwmCuCXLybr-2c5ByQ_Ycg" />
- </picture>
-</a>
-
 ## Linux desktop
 
 A native desktop build of the reader, written in Compose Multiplatform. It is a second
@@ -137,7 +129,13 @@ untouched.
 </p>
 
 <p align="center">
-  <sub>The library on Linux, filtered by category and by length</sub>
+  <img src="assets/desktop_sources-preview.webp" alt="DropSauce desktop source catalogue" width="32%" />
+  <img src="assets/desktop_updates-preview.webp" alt="DropSauce desktop updates screen for tracked titles" width="32%" />
+  <img src="assets/desktop_appupdate-preview.webp" alt="DropSauce desktop app update screen" width="32%" />
+</p>
+
+<p align="center">
+  <sub>Library | Sources | Updates | App update</sub>
 </p>
 
 ### Filtering a shelf by length
@@ -185,17 +183,32 @@ before trying a new build if you care about what is in it.
 
 ### What it does
 
-Library with categories, catalogue browsing and search, a webtoon reader, reading
-history, bookmarks, downloads for offline reading, importing local comics (CBZ and EPUB),
-backup and restore that round-trips with the Android app, reading statistics, duplicate
-and category cleanup tools, and optional AniList or MyAnimeList tracking.
+**Reading.** A library with categories, catalogue browsing and search across sources, a
+webtoon reader, reading history and bookmarks.
+
+**Offline.** Download chapters from a title, choosing everything, one scanlation branch,
+everything after what you have read, or the next few. Pick where they are saved in
+Settings. Import your own comics as CBZ or EPUB.
+
+**Keeping up.** Track your library and see which titles have new chapters, with a count on
+the sidebar and a mark on the cards themselves. Checks are manual: there is no background
+updater.
+
+**When a source breaks.** Around 380 of the catalogue's sources are flagged broken, and
+titles get dropped from working ones too. Any title can be searched for on every other
+source and moved across, carrying its categories, reading position, bookmarks and
+tracking. The library says how many of its entries sit on a source that cannot be opened.
+
+**Housekeeping.** Backup and restore that round-trips with the Android app, reading
+statistics, duplicate and category cleanup, per-title reader preferences, and optional
+AniList or MyAnimeList tracking.
 
 Sources come from the `kotatsu-parsers` catalogue. Mihon extension APKs and LNReader JS
 plugins are Android-only and are **not** available on desktop.
 
 ### Staying up to date
 
-The app checks this repository's releases once when it starts and puts a dot on the
+The app checks this repository's releases once when it starts and puts a count on the
 **App update** item in the sidebar when there is a newer build. That screen shows what
 changed and links to the package.
 
@@ -226,14 +239,15 @@ present on a normal Debian or Ubuntu install. The Android SDK is only needed for
 Full detail, including where every file is written, is in
 [README-DESKTOP.md](README-DESKTOP.md).
 
-## Install
+## Install on Android
 
-1. Open the [latest GitHub release](https://github.com/byteoverride/DropSauce-desktop/releases/latest).
-2. Download the newest `DropSauce` APK.
-3. Install it on a compatible Android device.
-4. Add your preferred source or extension repository, then start reading.
+This fork does not publish Android builds. Its releases are the Linux `.deb` only, so the
+APK comes from the [upstream project](https://github.com/HuzaifaKhalid1311/DropSauce/releases/latest):
+download the newest `DropSauce` APK and install it on a compatible device. Android may ask
+you to allow installs from your browser or file manager, which is normal for an APK from
+outside the Play Store.
 
-Android may ask you to allow installs from your browser or file manager. That is normal for APKs downloaded outside the Play Store.
+For Linux, see [Linux desktop](#linux-desktop) above.
 
 ## FAQ
 
@@ -244,7 +258,7 @@ Android may ask you to allow installs from your browser or file manager. That is
 > Yes. DropSauce is free and open source under the GPLv3 license.
 
 ### How do updates work?
-> DropSauce supports in-app updates, and release APKs are also published on GitHub. You can update from inside the app or install the latest APK from the Releases page.
+> Both builds check for themselves. The Android app has in-app updates and publishes APKs on upstream's Releases page. The desktop build checks this repository's releases once when it starts and puts a count on the **App update** item in the sidebar; it never downloads or installs anything for you, because a `.deb` needs root.
 
 ### Can I contribute?
 > Yes. Pull requests for patches, fixes, and new features are welcome.
