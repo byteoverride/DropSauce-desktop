@@ -96,7 +96,11 @@ compose.desktop {
 		mainClass = "org.koitharu.kotatsu.desktop.MainKt"
 
 		nativeDistributions {
-			targetFormats(TargetFormat.Deb)
+			// Both declared, neither cross-compiles. jpackage wraps the host's own
+			// packaging tools, so the Compose plugin disables the task that does not
+			// match the machine it is running on: packageMsi is SKIPPED on Linux and
+			// packageDeb is SKIPPED on Windows. Each CI runner calls its own.
+			targetFormats(TargetFormat.Deb, TargetFormat.Msi)
 			// The display name, which is what a launcher shows. The deb package name
 			// must stay lowercase, so linux.packageName overrides it below.
 			packageName = "DropSauce"
@@ -104,6 +108,21 @@ compose.desktop {
 			description = "A comic and novel reader"
 			vendor = "DropSauce"
 			licenseFile.set(rootProject.file("LICENSE"))
+
+			windows {
+				// Without this jpackage substitutes its own default, which is how the
+				// Linux build shipped the Kotlin logo for two releases.
+				iconFile.set(project.file("src/main/resources/dropsauce.ico"))
+				menuGroup = "DropSauce"
+				// Fixed for the life of the product, and it has to be: Windows Installer
+				// identifies a product by this UUID, so changing it turns every upgrade
+				// into a second copy installed alongside the first.
+				upgradeUuid = "9f3d71c4-5e8a-4b2f-9c17-6a0d4e8b3f52"
+				// A shortcut people can actually find, and a directory they can choose.
+				menu = true
+				shortcut = true
+				dirChooser = true
+			}
 
 			linux {
 				packageName = "dropsauce"

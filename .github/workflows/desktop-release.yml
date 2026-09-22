@@ -6,6 +6,10 @@ name: Desktop Release
 # schedules and neither should be able to fail the other, so they are separate workflows
 # on separate tag prefixes: desktop-v0.9.7 here, the Android tags there.
 #
+# Two jobs, one per platform, because jpackage cannot cross-compile: it wraps the host's
+# own packaging tools, so a .deb can only be built on Linux and an .msi only on Windows.
+# The Compose plugin knows this and disables the task that does not match the runner.
+#
 # The .deb bundles its own JRE via Compose's nativeDistributions, so what comes out does
 # not care what Java the person installing it has.
 on:
@@ -83,3 +87,63 @@ jobs:
             --title "Desktop ${{ github.ref_name }}" \
             --generate-notes \
             || gh release upload "${{ github.ref_name }}" "${{ steps.artifact.outputs.path }}" --clobber
+
+  msi:
+    name: Build .msi
+    # After the Linux job rather than beside it, so one of them owns creating the release
+    # and this one only ever uploads. Racing two `gh release create` calls on the same tag
+    # is a coin flip over which gets the error.
+    needs: deb
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # jpackage shells out to WiX to lay out an installer. The runner image ships it,
+      # but the failure without it comes late and reads as a generic jpackage error, so
+      # this fails early and says which thing is missing.
+      - name: Check WiX is present
+        shell: bash
+        run: |
+          if command -v candle.exe >/dev/null 2>&1 || command -v light.exe >/dev/null 2>&1; then
+            echo "WiX found on PATH"
+          else
+            echo "::warning::WiX not found on PATH; jpackage may fail. Runner image: $ImageOS"
+          fi
+
+      - name: Build the installer
+        shell: bash
+        run: ./gradlew :desktop:packageMsi --no-daemon
+
+      - name: Find the artifact
+        id: artifact
+        shell: bash
+        run: |
+          msi=$(ls desktop/build/compose/binaries/main/msi/*.msi | head -1)
+          echo "path=$msi" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$msi")" >> "$GITHUB_OUTPUT"
+          sha256sum "$msi" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: ${{ steps.artifact.outputs.path }}
+          if-no-files-found: error
+
+      # Upload only, never create: the Linux job has already made the release by now.
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" "${{ steps.artifact.outputs.path }}" --clobber
