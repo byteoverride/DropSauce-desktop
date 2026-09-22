@@ -178,8 +178,12 @@ fun DetailsScreen(
 				OutlinedButton(onClick = { choosingDownload = true }) {
 					Text(if (done > 0) "Download ($done saved)" else "Download")
 				}
-				// Not only for the empty case. A source that returns a stale or truncated
-				// chapter list looks perfectly healthy and is the same problem.
+			}
+			// Deliberately not gated on having chapters: the states this answers are the
+			// ones with none. Hidden only when the failure below is already offering it,
+			// which would otherwise put the same button twice on one screen.
+			val offeredBelow = error != null && chapters.isEmpty()
+			if (!offeredBelow) {
 				OutlinedButton(onClick = { onFindAlternative(manga) }) { Text("Other sources") }
 			}
 		}
@@ -193,9 +197,19 @@ fun DetailsScreen(
 		when {
 			loading && chapters.isEmpty() -> LoadingBox()
 			error != null && chapters.isEmpty() -> ErrorBox(
-				message = "Could not load this title.\n$error",
+				// A 404, 403 or 502 here means this source cannot serve the title, not
+				// that the title does not exist. Retry is the right answer to a timeout
+				// and no answer at all to a page that has been taken down, so the way out
+				// sits next to it rather than somewhere the reader has to go looking.
+				message = "Could not load this title from ${source.title}.\n$error",
 				onRetry = { attempt++ },
-			)
+			) {
+				// The seed, because the load is what failed: it carries the title, which
+				// is all the search needs.
+				OutlinedButton(onClick = { onFindAlternative(manga) }) {
+					Text("Find it on another source")
+				}
+			}
 
 			else -> LazyColumn(Modifier.fillMaxSize()) {
 				item {

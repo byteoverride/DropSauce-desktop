@@ -98,6 +98,14 @@ fun ReaderScreen(
 	initialPage: Int,
 	onBack: () -> Unit,
 	onChapterChange: (chapterIndex: Int, page: Int) -> Unit,
+	/**
+	 * Go looking for this title elsewhere, when there is anywhere to look.
+	 *
+	 * Null for a local comic, which came off this disk and has no other source. Retry is
+	 * the right answer to a page that timed out and no answer at all to a chapter the
+	 * source has pulled, and those look identical from here.
+	 */
+	onFindAlternative: (() -> Unit)? = null,
 ) {
 	// One continuous strip across chapter boundaries. The reader asked for chapter two
 	// to flow out of chapter one without a visible break, so the unit of loading is no
@@ -331,8 +339,15 @@ fun ReaderScreen(
 		Box(Modifier.weight(1f)) {
 		when {
 			loading -> LoadingBox()
-			error != null -> ErrorBox("Could not load pages.\n$error", onRetry = { attempt++ })
-			strip.isEmpty() -> ErrorBox("This chapter has no pages.", onRetry = { attempt++ })
+			error != null -> ErrorBox(
+				message = "Could not load pages.\n$error",
+				onRetry = { attempt++ },
+			) { FindAlternativeButton(onFindAlternative) }
+
+			strip.isEmpty() -> ErrorBox(
+				message = "This chapter has no pages.",
+				onRetry = { attempt++ },
+			) { FindAlternativeButton(onFindAlternative) }
 			else -> WebtoonStrip(
 				pageSource = pageSource,
 				pages = strip,
@@ -609,6 +624,15 @@ private fun PageImage(
 		}
 
 		else -> LoadingBox(modifier)
+	}
+}
+
+
+/** Offered only when there is somewhere else to look, which a local comic has not. */
+@Composable
+private fun FindAlternativeButton(onFindAlternative: (() -> Unit)?) {
+	if (onFindAlternative != null) {
+		TextButton(onClick = onFindAlternative) { Text("Find it on another source") }
 	}
 }
 

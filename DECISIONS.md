@@ -832,6 +832,35 @@ whose favourites and history now belong to something else.
 this on a title that was never in the library reports itself honestly
 rather than claiming a migration that did nothing.
 
+### D28. A failure screen offers something that can work
+
+Sweeping every terminal state after D27 turned up one real defect and two
+more dead ends of the same shape.
+
+The defect: the browse screen's Retry was `onRetry = { submitted = submitted }`.
+Assigning a `mutableStateOf` its own value is not a change, so no
+`remember` key was invalidated and no `LaunchedEffect` re-ran. The button
+was present, looked enabled and did nothing, on the screen a reader hits
+whenever a source is down. It compiles, it renders, and the only symptom
+is a button that silently does not work, so a test sweeps the source for a
+lambda whose whole body is `x = x`. Deliberately not a bare `x = x`, which
+also matches a named argument given the variable of the same name; those
+are everywhere and fine.
+
+The dead ends: a title that will not load at all (404, 403, 502) and a
+chapter with no pages both offered Retry and nothing else. Retry is the
+right answer to a timeout and no answer at all to a title a source has
+pulled, and those are indistinguishable from the screen. Both now offer
+the alternatives search, through a slot added to `ErrorBox` rather than a
+second error component. The reader's version is null for a local comic,
+which came off this disk and has nowhere else to look.
+
+Checked and left alone: the migrate screen's own failure states, whose
+Cancel is a sibling of the branch and so always present; the
+feature-not-available box, which sends the reader to the library; and the
+four empty-result states, which all sit under a search field or a filter
+the reader can change.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:

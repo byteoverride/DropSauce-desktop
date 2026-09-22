@@ -147,7 +147,19 @@ fun LoadingBox(modifier: Modifier = Modifier) {
  * it always offers a retry.
  */
 @Composable
-fun ErrorBox(message: String, onRetry: (() -> Unit)? = null, modifier: Modifier = Modifier) {
+fun ErrorBox(
+	message: String,
+	onRetry: (() -> Unit)? = null,
+	modifier: Modifier = Modifier,
+	/**
+	 * Anything else worth offering here.
+	 *
+	 * Retry is the right answer to a timeout and the wrong one to a 404: a title the
+	 * source has dropped will not come back however many times it is asked, and a screen
+	 * whose only button cannot work is a dead end.
+	 */
+	extra: @Composable () -> Unit = {},
+) {
 	Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
 		androidx.compose.foundation.layout.Column(
 			horizontalAlignment = Alignment.CenterHorizontally,
@@ -163,6 +175,7 @@ fun ErrorBox(message: String, onRetry: (() -> Unit)? = null, modifier: Modifier 
 			if (onRetry != null) {
 				androidx.compose.material3.Button(onClick = onRetry) { Text("Retry") }
 			}
+			extra()
 		}
 	}
 }

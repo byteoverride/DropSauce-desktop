@@ -319,6 +319,7 @@ private fun Router(state: AppState) {
 			onChapterChange = { index, page ->
 				state.replace(screen.copy(chapterIndex = index, initialPage = page))
 			},
+			onFindAlternative = { state.go(Screen.FindAlternative(screen.source, screen.manga)) },
 		)
 	}
 }

@@ -53,10 +53,19 @@ fun BrowseScreen(
 	val session = remember(source) { state.sources.session(source) }
 	var query by remember(source) { mutableStateOf("") }
 	var submitted by remember(source) { mutableStateOf("") }
-	val items = remember(source, submitted) { mutableStateListOf<Manga>() }
-	var loading by remember(source, submitted) { mutableStateOf(false) }
-	var exhausted by remember(source, submitted) { mutableStateOf(false) }
-	var error: String? by remember(source, submitted) { mutableStateOf(null) }
+	/**
+	 * Bumped to ask again for the same query.
+	 *
+	 * Retry used to be `submitted = submitted`, which does nothing: a `mutableStateOf`
+	 * assigned its own value is not a change, so no key was invalidated and no effect
+	 * re-ran. The button was there, looked enabled, and could not work. A counter is a
+	 * real change every time.
+	 */
+	var attempt by remember(source) { mutableStateOf(0) }
+	val items = remember(source, submitted, attempt) { mutableStateListOf<Manga>() }
+	var loading by remember(source, submitted, attempt) { mutableStateOf(false) }
+	var exhausted by remember(source, submitted, attempt) { mutableStateOf(false) }
+	var error: String? by remember(source, submitted, attempt) { mutableStateOf(null) }
 
 	suspend fun loadMore() {
 		if (loading || exhausted) return
@@ -88,8 +97,8 @@ fun BrowseScreen(
 	}
 
 	val gridState = rememberLazyGridState()
-	LaunchedEffect(source, submitted) { loadMore() }
-	LaunchedEffect(gridState, source, submitted) {
+	LaunchedEffect(source, submitted, attempt) { loadMore() }
+	LaunchedEffect(gridState, source, submitted, attempt) {
 		snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
 			.distinctUntilChanged()
 			.collect { last ->
@@ -117,7 +126,7 @@ fun BrowseScreen(
 			items.isEmpty() && loading -> LoadingBox()
 			items.isEmpty() && error != null -> ErrorBox(
 				message = "This source did not respond.\n$error",
-				onRetry = { submitted = submitted },
+				onRetry = { attempt++ },
 			)
 
 			items.isEmpty() -> Box(Modifier.fillMaxSize()) {
