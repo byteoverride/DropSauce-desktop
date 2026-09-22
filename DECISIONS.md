@@ -696,6 +696,12 @@ The screen says how many titles have no count yet, in the bar and in the empty
 state. "Nothing matches" and "nothing has been counted" look identical
 otherwise, and the second one was the actual bug.
 
+The buckets partition the library for browsing it. "100 or more" deliberately
+overlaps three of them, because the shelf is emptied at a threshold rather than
+browsed, and 100 falls inside "26 to 100" and then spans two more buckets: as a
+partition the question costs three passes and files the boundary title wrongly.
+Inclusive of 100, since that is what the rule says.
+
 Filtering a category is not the goal, refiling it is: the filter is how you find
 the titles in "Marinate" that have passed 100 chapters, and moving them is the
 point. That action reuses `CurateRepository.moveToCategory`, which is already

@@ -221,6 +221,17 @@ enum class ChapterFilter(val label: String, private val range: IntRange?) {
 	Medium("26 to 100", 26..100),
 	Long("101 to 500", 101..500),
 	VeryLong("Over 500", 501..Int.MAX_VALUE),
+
+	/**
+	 * Deliberately overlaps [Medium], [Long] and [VeryLong], and is not a mistake.
+	 *
+	 * The buckets above partition the library for browsing it. This one answers a
+	 * question: a shelf held for titles that have not grown long enough yet is emptied at
+	 * a threshold, and at 100 that threshold falls inside [Medium] and then spans two
+	 * more buckets, so asking it as a partition costs three passes and gets the boundary
+	 * title wrong. Inclusive of 100: "100 or more" is the rule, and 100 is more than 99.
+	 */
+	HundredPlus("100 or more", 100..Int.MAX_VALUE),
 	;
 
 	fun matches(item: LibraryItem): Boolean =

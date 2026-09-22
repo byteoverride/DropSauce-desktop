@@ -164,6 +164,29 @@ class ChapterFilterTest {
 		assertEquals(1, refresher { 0 }.observeMissing(null).first())
 	}
 
+	// The threshold the "Marinate" shelf is emptied at, which falls inside a bucket and
+	// then spans two more, so it is its own filter rather than three passes.
+	@Test
+	fun `the hundred-or-more bucket spans the ones above it and includes its boundary`() = runBlocking {
+		val category = repo.createCategory("Marinate")
+		repo.setFavourite(manga(1L, "99", chapters = 99), category, true)
+		repo.setFavourite(manga(2L, "100", chapters = 100), category, true)
+		repo.setFavourite(manga(3L, "101", chapters = 101), category, true)
+		repo.setFavourite(manga(4L, "700", chapters = 700), category, true)
+		repo.setFavourite(manga(5L, "Not loaded", chapters = 0), category, true)
+
+		val all = repo.observeFavourites(null).first()
+
+		assertEquals(
+			listOf("100", "101", "700"),
+			all.filter(ChapterFilter.HundredPlus::matches).map { it.manga.title }.sorted(),
+		)
+		// The partition is untouched: 100 still browses under "26 to 100".
+		assertEquals(listOf("100", "99"), all.filter(ChapterFilter.Medium::matches).map { it.manga.title }.sorted())
+		assertEquals(listOf("101"), all.filter(ChapterFilter.Long::matches).map { it.manga.title })
+		assertEquals(listOf("700"), all.filter(ChapterFilter.VeryLong::matches).map { it.manga.title })
+	}
+
 	@Test
 	fun `filtering then refiling moves exactly what the filter showed`() = runBlocking {
 		val marinate = repo.createCategory("Marinate")
