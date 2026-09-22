@@ -17,6 +17,10 @@ object ScrobblingFeature : Feature {
 
 	override val glyph: String = "◉"
 
+	override val isTopLevel: Boolean = false
+
+	override val settingsTitle: String = "Tracking services"
+
 	@Composable
 	override fun Content(context: FeatureContext, navigator: FeatureNavigator) {
 		TrackingServicesScreen(context)

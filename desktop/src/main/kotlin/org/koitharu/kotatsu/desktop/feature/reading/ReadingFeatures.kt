@@ -34,6 +34,10 @@ object StatsFeature : Feature {
 
 	override val glyph: String = "\u25A6"
 
+	override val isTopLevel: Boolean = false
+
+	override val settingsTitle: String = "Reading statistics"
+
 	@Composable
 	override fun Content(context: FeatureContext, navigator: FeatureNavigator) {
 		StatsScreen(context)

@@ -90,8 +90,21 @@ interface Feature {
     /** Single-character glyph for the navigation rail. */
 	val glyph: String
 
-	/** Whether this area appears as a top-level destination. */
+	/**
+	 * Whether this area gets its own place in the navigation rail.
+	 *
+	 * False for the tools: configuration and occasional maintenance, which the Settings
+	 * screen lists instead. Eighteen destinations in one rail is not navigation, it is a
+	 * menu you have to read every time, and most of those eighteen are opened once a
+	 * month or never.
+	 */
 	val isTopLevel: Boolean get() = true
+
+	/**
+	 * The label used where there is room for a sentence rather than a rail's worth of
+	 * space. "Migrate" is enough next to a glyph and tells you nothing in a list.
+	 */
+	val settingsTitle: String get() = title
 
 	/**
 	 * Emits true while this area has something the user has not seen, for a dot on the

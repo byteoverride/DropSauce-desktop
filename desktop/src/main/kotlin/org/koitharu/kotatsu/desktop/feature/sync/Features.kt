@@ -7,7 +7,7 @@ import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 
-/** Backup and restore, as a top-level destination. */
+/** Backup and restore. Listed in Settings: a library is restored once, not browsed. */
 object BackupFeature : Feature {
 
 	override val id: String = "backup"
@@ -15,6 +15,10 @@ object BackupFeature : Feature {
 	override val title: String = "Backup"
 
 	override val glyph: String = "⤓"
+
+	override val isTopLevel: Boolean = false
+
+	override val settingsTitle: String = "Backup and restore"
 
 	@Composable
 	override fun Content(context: FeatureContext, navigator: FeatureNavigator) {

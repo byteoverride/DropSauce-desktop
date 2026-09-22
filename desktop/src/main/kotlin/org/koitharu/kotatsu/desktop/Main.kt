@@ -1,9 +1,13 @@
 package org.koitharu.kotatsu.desktop
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Badge
@@ -23,6 +27,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
@@ -144,6 +149,9 @@ private fun rememberNavigator(state: AppState): FeatureNavigator = remember(stat
 private fun NavRail(state: AppState) {
 	NavigationRail {
 		Spacer(Modifier.height(12.dp))
+		// The tools live inside Settings now, so their dot has to surface here or it is
+		// invisible until someone happens to open Settings.
+		val toolsBadged by remember(state) { state.toolsBadge() }.collectAsState(false)
 		for ((destination, item) in ROOTS) {
 			val (glyph, label) = item
 			NavigationRailItem(
@@ -152,7 +160,11 @@ private fun NavRail(state: AppState) {
 				// A glyph rather than an empty icon slot: NavigationRailItem sizes its
 				// hit target around the icon, so an empty one leaves an item that is
 				// awkward to click even though it renders fine.
-				icon = { Text(glyph, style = MaterialTheme.typography.titleMedium) },
+				icon = {
+					BadgedBox(badge = { if (destination == Screen.Settings && toolsBadged) Badge() }) {
+						Text(glyph, style = MaterialTheme.typography.titleMedium)
+					}
+				},
 				label = { Text(label) },
 			)
 		}
@@ -175,6 +187,17 @@ private fun NavRail(state: AppState) {
 				label = { Text(feature.title) },
 			)
 		}
+	}
+}
+
+/** A slim way out of a tool that was opened from Settings. */
+@Composable
+private fun BackToSettings(onBack: () -> Unit) {
+	Row(
+		modifier = Modifier.fillMaxWidth().clickable(onClick = onBack).padding(horizontal = 12.dp, vertical = 6.dp),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Text("\u2039  Settings", style = MaterialTheme.typography.labelLarge)
 	}
 }
 
@@ -209,7 +232,18 @@ private fun Router(state: AppState) {
 				// Only reachable if a feature is removed while its screen is open.
 				ErrorBox("This section is not available.", onRetry = { state.selectRoot(Screen.Library) })
 			} else {
-				feature.Content(state.featureContext, rememberNavigator(state))
+				Column(Modifier.fillMaxSize()) {
+					// A tool opened from Settings is pushed onto the stack rather than
+					// made the root, so that Settings stays highlighted and there is
+					// somewhere to go back to. The shell provides the way back because an
+					// area cannot know whether it was reached from the rail or from
+					// inside Settings, and the ones in Settings have no rail slot to
+					// click their way out of.
+					if (state.canGoBack) {
+						BackToSettings(onBack = state::back)
+					}
+					feature.Content(state.featureContext, rememberNavigator(state))
+				}
 			}
 		}
 

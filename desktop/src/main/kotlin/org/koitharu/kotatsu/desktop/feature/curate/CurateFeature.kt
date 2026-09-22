@@ -20,6 +20,10 @@ object CurateFeature : Feature {
 
 	override val glyph: String = "☰"
 
+	override val isTopLevel: Boolean = false
+
+	override val settingsTitle: String = "Organise library"
+
 	@Composable
 	override fun Content(context: FeatureContext, navigator: FeatureNavigator) {
 		CurateScreen(context, navigator)

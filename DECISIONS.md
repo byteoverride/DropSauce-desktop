@@ -765,6 +765,40 @@ disagree about what is installed. A generated resource rather than the jar
 manifest because `:desktop:run` has no manifest, and a version that only
 works in the package is one you cannot test while developing it.
 
+### D26. The navigation rail carries content; Settings carries tools
+
+The rail reached eighteen destinations. Every new area defaulted into it,
+`isTopLevel` existed and nothing ever set it false, and nobody counted. At
+that size it stops being navigation and becomes a menu you read every
+time, which costs the areas people open daily to make room for ones they
+open once.
+
+The line is content against configuration, not frequency. Bookmarks and
+local comics are things you read, so they stay on the rail however rarely
+they are opened. Reader preferences, tracking services, backup, import,
+statistics, organise, fix broken sources and app update are setup and
+occasional maintenance, so Settings lists them. Ten destinations left.
+
+Tools are pushed onto the stack rather than made the root. A root has a
+rail slot to click your way out of and these no longer have one, so making
+one the root would strand the reader with nothing highlighted and nothing
+to go back to. The shell draws the way back, because an area cannot know
+whether it was reached from the rail or from inside Settings. The same
+applies to the library's own "Fix sources" button, which pushed migrate
+rather than selecting it for exactly this reason.
+
+A hidden area's badge surfaces on Settings, or it would only ever be seen
+by someone who had already gone looking for it.
+
+`Feature.settingsTitle` exists because a rail slot sits beside a glyph and
+a Settings row is read as a phrase. "Migrate" is enough for the first and
+says nothing in the second.
+
+A test asserts the rail's size and which ids are on each side. The split
+is a judgement, but the failure mode is not: an area that defaults into
+the rail is how it got to eighteen, so the default now has to be argued
+with in a test rather than merely noticed later.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:

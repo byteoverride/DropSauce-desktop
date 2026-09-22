@@ -25,6 +25,10 @@ object AppUpdateFeature : Feature {
 	/** Upwards arrow: the thing you do with a newer version. */
 	override val glyph: String = "↑"
 
+	override val isTopLevel: Boolean = false
+
+	override val settingsTitle: String = "App update"
+
 	/**
 	 * One repository per shell.
 	 *

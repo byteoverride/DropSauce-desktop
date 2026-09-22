@@ -7,6 +7,9 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -200,6 +203,21 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 	}
 
 	fun feature(id: String): Feature? = features.firstOrNull { it.id == id }
+
+	/**
+	 * True while any tool inside Settings has something to report.
+	 *
+	 * Those areas have no rail slot of their own any more, so without this their dot
+	 * would only ever be seen by someone who had already gone looking for it.
+	 *
+	 * `combine` over an empty list never emits, which would leave the rail waiting on a
+	 * flow that says nothing, so the empty case is its own answer.
+	 */
+	fun toolsBadge(): Flow<Boolean> {
+		val tools = features.filter { !it.isTopLevel }
+		if (tools.isEmpty()) return flowOf(false)
+		return combine(tools.map { it.badge(featureContext) }) { flags -> flags.any { it } }
+	}
 
 	/**
 	 * For requests that are not to a manga source.

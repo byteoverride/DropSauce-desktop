@@ -45,6 +45,10 @@ object ReaderExtrasFeature : Feature {
 
 	override val glyph: String = "▣"
 
+	override val isTopLevel: Boolean = false
+
+	override val settingsTitle: String = "Reader preferences"
+
 	@Composable
 	override fun Content(context: FeatureContext, navigator: FeatureNavigator) {
 		// The navigator is not used: nothing here opens a title or a chapter. Taking it

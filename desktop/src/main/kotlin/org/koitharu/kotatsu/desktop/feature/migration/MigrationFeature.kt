@@ -29,6 +29,10 @@ object MigrationFeature : Feature {
 	/** Rightwards arrow with corners: moving a thing from one place to another. */
 	override val glyph: String = "⇄"
 
+	override val isTopLevel: Boolean = false
+
+	override val settingsTitle: String = "Fix broken sources"
+
 	@Composable
 	override fun Content(context: FeatureContext, navigator: FeatureNavigator) {
 		var selected: LibraryEntry? by remember(context) { mutableStateOf(null) }

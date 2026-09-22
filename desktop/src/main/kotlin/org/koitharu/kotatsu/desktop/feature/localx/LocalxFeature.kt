@@ -25,6 +25,10 @@ object LocalExtrasFeature : Feature {
 	/** A box with an arrow into it: bringing structure in, not just a file. */
 	override val glyph = "⤓"
 
+	override val isTopLevel: Boolean = false
+
+	override val settingsTitle: String = "Import comics"
+
 	@Composable
 	override fun Content(context: FeatureContext, navigator: FeatureNavigator) {
 		val dao = remember(context) { context.db.localLibraryDao() }

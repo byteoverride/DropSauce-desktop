@@ -1,14 +1,17 @@
 package org.koitharu.kotatsu.desktop.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -118,6 +121,22 @@ fun SettingsScreen(state: AppState) {
 				PathRow("Cache", state.paths.cache.toString())
 			}
 
+			// The tools that used to each own a slot in the navigation rail. They are
+			// configuration and occasional maintenance, opened rarely, and eighteen
+			// destinations made the ones people use every day harder to find.
+			val tools = state.features.filter { !it.isTopLevel }
+			if (tools.isNotEmpty()) {
+				Section("Tools") {
+					for (tool in tools) {
+						ToolRow(
+							feature = tool,
+							context = state.featureContext,
+							onOpen = { state.go(Screen.FeatureRoot(tool.id)) },
+						)
+					}
+				}
+			}
+
 			Section("About") {
 				PathRow("Sources available", state.usableSourceCount.toString())
 				Text(
@@ -128,6 +147,34 @@ fun SettingsScreen(state: AppState) {
 				)
 			}
 		}
+	}
+}
+
+/**
+ * One tool, with its own dot when it has something to say.
+ *
+ * Pushed rather than selected as a root, so the shell keeps a way back to this screen and
+ * the rail goes on showing Settings as where you are.
+ */
+@Composable
+private fun ToolRow(
+	feature: org.koitharu.kotatsu.desktop.feature.Feature,
+	context: org.koitharu.kotatsu.desktop.feature.FeatureContext,
+	onOpen: () -> Unit,
+) {
+	val badged by remember(feature) { feature.badge(context) }.collectAsState(false)
+	Row(
+		modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(vertical = 10.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(12.dp),
+	) {
+		Text(feature.glyph, style = MaterialTheme.typography.titleMedium)
+		Text(feature.settingsTitle, style = MaterialTheme.typography.bodyLarge)
+		if (badged) {
+			Badge()
+		}
+		Spacer(Modifier.weight(1f))
+		Text("\u203A", style = MaterialTheme.typography.titleMedium)
 	}
 }
 

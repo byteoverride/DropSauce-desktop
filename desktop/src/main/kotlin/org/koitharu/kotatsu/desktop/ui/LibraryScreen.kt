@@ -300,9 +300,16 @@ internal fun sourceHealth(sourceName: String): SourceHealth {
 	}
 }
 
-/** Sends the shell to the migrate area, which lists every entry that cannot be opened. */
+/**
+ * Sends the shell to the migrate area, which lists every entry that cannot be opened.
+ *
+ * Pushed, not selected as a root. Migrate has no slot in the navigation rail any more, so
+ * making it the root would highlight nothing and clear the only stack entry that could
+ * have brought the reader back: they would arrive at the repair screen with no way out
+ * but to pick some other destination and lose their place in the library.
+ */
 private fun AppState.goToMigration() {
-	feature(MigrationFeature.id)?.let { selectRoot(Screen.FeatureRoot(it.id)) }
+	feature(MigrationFeature.id)?.let { go(Screen.FeatureRoot(it.id)) }
 }
 
 /**
