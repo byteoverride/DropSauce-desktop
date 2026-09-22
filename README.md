@@ -15,7 +15,8 @@
 </p>
 
 <p align="center">
-  <a href="#linux-desktop"><img alt="Linux x86_64" src="https://img.shields.io/badge/Linux-x86__64-FCC624?style=for-the-badge&logo=linux&logoColor=black"></a>
+  <a href="#desktop"><img alt="Linux x86_64" src="https://img.shields.io/badge/Linux-x86__64-FCC624?style=for-the-badge&logo=linux&logoColor=black"></a>
+  <a href="#desktop"><img alt="Windows x64" src="https://img.shields.io/badge/Windows-x64-0078D4?style=for-the-badge&logo=windows&logoColor=white"></a>
   <a href="https://developer.android.com/"><img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B%20(upstream)-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
   <a href="https://kotlinlang.org/"><img alt="Kotlin" src="https://img.shields.io/github/languages/top/byteoverride/DropSauce-desktop?style=for-the-badge&logo=kotlin&logoColor=white"></a>
   <a href="https://developer.android.com/compose"><img alt="Jetpack Compose" src="https://img.shields.io/badge/Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white"></a>
@@ -23,7 +24,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/byteoverride/DropSauce-desktop/releases/latest"><strong>Download for Linux</strong></a>
+  <a href="https://github.com/byteoverride/DropSauce-desktop/releases/latest"><strong>Download for Linux or Windows</strong></a>
   |
   <a href="https://github.com/HuzaifaKhalid1311/DropSauce/releases/latest"><strong>Android APK (upstream)</strong></a>
   |
@@ -43,7 +44,7 @@
 >
 > **What this fork adds:** a Compose Multiplatform **Linux desktop** application, built
 > from the same source tree and sharing its database and logic. See
-> [Linux desktop](#linux-desktop) below.
+> [Desktop](#desktop) below.
 >
 > The Android app is upstream's work and is **not** released from this fork. For Android
 > builds, the website, the Discord and the community, go to the
@@ -118,11 +119,14 @@ build from the same source tree.
 
 </details>
 
-## Linux desktop
+## Desktop
 
 A native desktop build of the reader, written in Compose Multiplatform. It is a second
 front end over the same shared logic, not a rewrite, and the Android app still builds
 untouched.
+
+Linux is what it is developed and tested on. Windows installers are built by CI and have
+**not been run on a real machine yet**, so treat those as early.
 
 <p align="center">
   <img src="assets/desktop_library-preview.webp" alt="DropSauce desktop library screen, showing categories, the chapter length filter and the cover grid" width="90%" />
@@ -168,18 +172,29 @@ category in one step.
 
 ### Install
 
-Grab `dropsauce_<version>_amd64.deb` from the
-[latest release](https://github.com/byteoverride/DropSauce-desktop/releases/latest):
+Both builds are on the
+[latest release](https://github.com/byteoverride/DropSauce-desktop/releases/latest), and
+both bundle their own Java runtime, so neither cares what Java you have.
+
+**Linux**, `dropsauce_<version>_amd64.deb`, around 70 MB:
 
 ```bash
 sudo dpkg -i dropsauce_*_amd64.deb
 ```
 
-Around 66 MB, installs to `/opt/dropsauce`, and bundles its own Java runtime, so it does
-not care what Java you have. Remove it with `sudo dpkg -r dropsauce`.
+Installs to `/opt/dropsauce`; remove it with `sudo dpkg -r dropsauce`. Your library lives
+in `~/.local/share/dropsauce/`.
 
-Your library lives in `~/.local/share/dropsauce/`. Copy that directory somewhere safe
-before trying a new build if you care about what is in it.
+**Windows**, `DropSauce-<version>.msi`, around 76 MB: double click it and choose a folder.
+Uninstall through Apps and Features.
+
+> Windows has not been run on real hardware yet, and two things are already known to be
+> wrong there. Your library is written to `C:\Users\<you>\.local\share\dropsauce`
+> instead of `%APPDATA%`, and the downloads folder picker in Settings will not open.
+> Both are being fixed; nothing else is known to differ.
+
+Copy your library directory somewhere safe before trying a new build if you care about
+what is in it.
 
 ### What it does
 
@@ -228,7 +243,8 @@ present on a normal Debian or Ubuntu install. The Android SDK is only needed for
 
 ### Known limits
 
-- Linux x86_64 only. No Windows or macOS packaging is set up.
+- Linux x86_64 and Windows x64. No macOS packaging, and the Windows build is untested on
+  real hardware.
 - Wayland runs through XWayland, since the app renders into an AWT window.
 - The reader is webtoon mode only. Paged modes are not implemented.
 - Very tall strips decode whole, as tiled decoding is not implemented yet.
@@ -247,7 +263,7 @@ download the newest `DropSauce` APK and install it on a compatible device. Andro
 you to allow installs from your browser or file manager, which is normal for an APK from
 outside the Play Store.
 
-For Linux, see [Linux desktop](#linux-desktop) above.
+For Linux, see [Desktop](#desktop) above.
 
 ## FAQ
 
