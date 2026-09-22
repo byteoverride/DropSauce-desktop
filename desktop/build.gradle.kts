@@ -64,7 +64,7 @@ compose.desktop {
 		nativeDistributions {
 			targetFormats(TargetFormat.Deb)
 			packageName = "dropsauce"
-			packageVersion = "0.9.6"
+			packageVersion = "0.9.7"
 			description = "A comic and novel reader"
 			vendor = "DropSauce"
 			licenseFile.set(rootProject.file("LICENSE"))
