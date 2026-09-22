@@ -61,6 +61,22 @@ class LibraryRepository(private val db: LibraryDatabase) {
 
 	suspend fun deleteCategory(id: Long) = db.favouriteCategoriesDao().delete(id)
 
+	/**
+	 * Turns checking for new chapters on or off for one category.
+	 *
+	 * Turning it off also stops watching the titles it holds, unless another tracked
+	 * category still holds them. Leaving them watched would make the switch a label
+	 * rather than a setting.
+	 */
+	suspend fun setCategoryTracked(id: Long, tracked: Boolean) {
+		db.favouriteCategoriesDao().setTracked(id, tracked)
+		if (tracked) {
+			db.tracksDao().insertTracksForEverythingKept()
+		} else {
+			db.tracksDao().untrackCategory(id)
+		}
+	}
+
 	fun observeFavourites(categoryId: Long?): Flow<List<LibraryItem>> {
 		val dao = db.favouritesDao()
 		val source = if (categoryId == null) dao.observeAll() else dao.observeByCategory(categoryId)
@@ -88,6 +104,17 @@ class LibraryRepository(private val db: LibraryDatabase) {
 					deletedAt = 0L,
 				),
 			)
+			// Saving a title is the moment you start caring whether it updates, so it
+			// begins being watched here rather than waiting for someone to remember the
+			// button on another screen. Only if the category is tracked, which is what
+			// that flag is for: filing something under "Done" is saying you are finished
+			// with it. Only inserts, so a title already watched keeps the chapter it was
+			// last seen at; an upsert would make the next check call the whole archive new.
+			val tracked = db.favouriteCategoriesDao().getAll()
+				.firstOrNull { it.categoryId == categoryId }?.track == true
+			if (tracked) {
+				db.tracksDao().trackIfNew(manga.id)
+			}
 		} else {
 			db.favouritesDao().remove(manga.id, categoryId)
 		}

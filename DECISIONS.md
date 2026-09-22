@@ -861,6 +861,40 @@ feature-not-available box, which sends the reader to the library; and the
 four empty-result states, which all sit under a search field or a filter
 the reader can change.
 
+### D29. What gets tracked: saved titles, in categories you have not switched off
+
+The updates tab crashed on a `tracks` row whose `manga` row was gone, and
+fixing it exposed a second question: why was almost nothing tracked. The
+answer was that the only way in was one button on the screen that crashed.
+
+Scope follows the Android app, which was checked rather than assumed. It
+stores `KEY_TRACK_SOURCES` as a set defaulting to `{favourites}`, treats
+history as opt-in and off, and for favourites calls
+`findIdsWithTrackOrNewChaptersDownload`, so only categories carrying the
+`track` flag are included.
+
+Desktop now does the same. Favourites in this app is the whole library, so
+"track favourites" promised less than it did and the button says "Track my
+library". Titles read but never saved are not tracked: that is Android's
+default, and they are not in the library by this app's own definition.
+
+The `track` column has been in the schema since the Android app's and
+nothing ever set it. A switch in the category dialog does now, which is
+what makes "Done" a shelf you can stop paying for: every tracked title is
+one live request per check run.
+
+Saving a title into a tracked category starts watching it there and then.
+Waiting for someone to remember a button on another screen is how a
+library of 359 ends up with four tracked titles.
+
+Turning a category off untracks what it holds, unless another tracked
+category still holds it. Only on that explicit toggle, never as a sweep: a
+title can also be watched because somebody asked for it directly, and a
+blanket "remove anything no category covers" would throw those away.
+
+Every insert is OR IGNORE. An upsert would reset the last seen chapter and
+the next check would report the whole archive as new.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:

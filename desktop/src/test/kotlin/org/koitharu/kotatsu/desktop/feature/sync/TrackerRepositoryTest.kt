@@ -4,10 +4,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.koitharu.kotatsu.desktop.library.LibraryRepository
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.shared.db.LibraryDatabase
@@ -223,8 +225,10 @@ class TrackerRepositoryTest {
 		assertTrue("expected the checks to actually overlap, peak was ${peak.get()}", peak.get() > 1)
 	}
 
+	// Scoped as the Android app scopes it: saved titles only, and only in categories with
+	// tracking on. History alone does not qualify, which is Android's default too.
 	@Test
-	fun `tracking every favourite is idempotent and skips titles that are only in history`() =
+	fun `tracking covers saved titles in tracked categories, and is idempotent`() =
 		runBlocking {
 			db.putManga(70L, "Favourite one")
 			db.putManga(71L, "Favourite two")
@@ -235,14 +239,99 @@ class TrackerRepositoryTest {
 			db.putHistory(72L, chapterId = 1L, page = 0, percent = 0f, updatedAt = 1L)
 			val repository = repository(fetcherReturning(emptyMap()))
 
-			assertEquals(2, repository.trackAllFavourites())
+			assertEquals(2, repository.trackEverythingKept())
 			assertEquals(2, db.rowCount("tracks"))
 			// Running it again must not duplicate, and must not reset a title that already
 			// has new chapters recorded against it.
-			assertEquals(0, repository.trackAllFavourites())
+			assertEquals(0, repository.trackEverythingKept())
 			assertEquals(2, db.rowCount("tracks"))
-			assertNull("history alone is not a reason to track", db.tracksDao().find(72L))
+			assertNull(
+				"reading something without saving it is not asking to be told about it",
+				db.tracksDao().find(72L),
+			)
 		}
+
+	// The button is no longer the only way in. Saving a title is the moment you begin
+	// caring whether it updates, and waiting for someone to remember a button on another
+	// screen is how a library ends up with four tracked titles out of three hundred.
+	@Test
+	fun `a category with tracking off is left out`() = runBlocking {
+		db.putManga(90L, "On a watched shelf")
+		db.putManga(91L, "On a finished shelf")
+		val watched = db.putCategory("Reading")
+		val finished = db.putCategory("Done")
+		db.putFavourite(90L, watched)
+		db.putFavourite(91L, finished)
+		db.favouriteCategoriesDao().setTracked(finished, false)
+		val repository = repository(fetcherReturning(emptyMap()))
+
+		assertEquals(1, repository.trackEverythingKept())
+		assertNotNull(db.tracksDao().find(90L))
+		assertNull("a shelf you have finished with is not checked", db.tracksDao().find(91L))
+	}
+
+	// A title on two shelves, one still watched, must survive the other being turned off.
+	@Test
+	fun `turning a category off keeps titles another tracked category still holds`() = runBlocking {
+		db.putManga(92L, "On both shelves")
+		db.putManga(93L, "Only on the one being turned off")
+		val watched = db.putCategory("Reading")
+		val finished = db.putCategory("Done")
+		db.putFavourite(92L, watched)
+		db.putFavourite(92L, finished)
+		db.putFavourite(93L, finished)
+		val library = LibraryRepository(db)
+		library.setCategoryTracked(finished, true)
+		assertEquals(2, db.rowCount("tracks"))
+
+		library.setCategoryTracked(finished, false)
+
+		assertNotNull("still on a tracked shelf", db.tracksDao().find(92L))
+		assertNull("only on the shelf that was turned off", db.tracksDao().find(93L))
+	}
+
+	@Test
+	fun `saving a title to the library starts watching it`() = runBlocking {
+		val category = db.putCategory("Reading")
+		val library = LibraryRepository(db)
+		library.setFavourite(testManga(80L, "Newly saved", MangaParserSource.MANGADEX, testChapters(2)), category, true)
+
+		assertNotNull(db.tracksDao().find(80L))
+	}
+
+	@Test
+	fun `saving into a category with tracking off does not start watching`() = runBlocking {
+		val category = db.putCategory("Done")
+		db.favouriteCategoriesDao().setTracked(category, false)
+		val library = LibraryRepository(db)
+		library.setFavourite(testManga(82L, "Filed away", MangaParserSource.MANGADEX, testChapters(2)), category, true)
+
+		assertNull(db.tracksDao().find(82L))
+	}
+
+	@Test
+	fun `saving a title that is already watched does not reset what it has seen`() = runBlocking {
+		val category = db.putCategory("Reading")
+		db.putManga(81L, "Already watched")
+		db.tracksDao().upsert(
+			org.koitharu.kotatsu.shared.db.TrackEntity(
+				mangaId = 81L,
+				lastChapterId = 555L,
+				lastChapterDate = 9L,
+				newChapters = 4,
+				lastCheck = 9L,
+				lastError = null,
+			),
+		)
+		val library = LibraryRepository(db)
+		library.setFavourite(testManga(81L, "Already watched", MangaParserSource.MANGADEX, testChapters(2)), category, true)
+
+		val track = db.tracksDao().find(81L)
+		assertNotNull(track)
+		// Resetting these would make the very next check report the whole archive as new.
+		assertEquals(555L, track!!.lastChapterId)
+		assertEquals(4, track.newChapters)
+	}
 
 	@Test
 	fun `tracking is idempotent and untracking removes the row`() = runBlocking {

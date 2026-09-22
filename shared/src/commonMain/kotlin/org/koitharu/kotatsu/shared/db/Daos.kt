@@ -104,6 +104,16 @@ interface FavouriteCategoriesDao {
 	@Query("UPDATE favourite_categories SET title = :title WHERE category_id = :id")
 	suspend fun rename(id: Long, title: String)
 
+	/**
+	 * Whether new chapters are looked for in this category.
+	 *
+	 * The column has been in the schema since the Android app's and nothing ever set it.
+	 * A shelf of finished titles has no reason to be checked, and checking it is a live
+	 * request per title.
+	 */
+	@Query("UPDATE favourite_categories SET track = :track WHERE category_id = :id")
+	suspend fun setTracked(id: Long, track: Boolean)
+
 	@Query("DELETE FROM favourite_categories WHERE category_id = :id")
 	suspend fun delete(id: Long)
 

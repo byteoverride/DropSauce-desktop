@@ -84,9 +84,9 @@ fun UpdatesScreen(context: FeatureContext, navigator: FeatureNavigator) {
 						enabled = !running,
 						onClick = {
 							scope.launch {
-								val added = repository.trackAllFavourites()
+								val added = repository.trackEverythingKept()
 								runResult = if (added == 0) {
-									"Everything in your library is already being tracked."
+									"Everything you keep is already being tracked."
 								} else {
 									"Now tracking $added more title${if (added == 1) "" else "s"}. " +
 										"Press Check now to look for new chapters."
@@ -94,7 +94,9 @@ fun UpdatesScreen(context: FeatureContext, navigator: FeatureNavigator) {
 							}
 						},
 					) {
-						Text("Track favourites")
+						// Not "favourites": that is this app's whole library, and the old
+						// label read as though it meant some subset of it.
+						Text("Track my library")
 					}
 					TextButton(
 						enabled = everything.isNotEmpty(),
@@ -168,7 +170,7 @@ fun UpdatesScreen(context: FeatureContext, navigator: FeatureNavigator) {
 			EmptyNote(
 				text = when {
 					everything.isEmpty() ->
-						"Nothing is being tracked yet. Press \"Track favourites\" to watch " +
+						"Nothing is being tracked yet. Press \"Track my library\" to watch " +
 							"everything in your library, then \"Check now\" to look for new chapters."
 
 					else -> "No new chapters. Press Check now to look again."

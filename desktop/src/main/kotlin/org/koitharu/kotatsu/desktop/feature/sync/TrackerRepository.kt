@@ -115,28 +115,17 @@ class TrackerRepository(
 	 * the source lists and reports nothing new. Claiming a whole back catalogue as "new" the
 	 * moment tracking is switched on would make the badge meaningless.
 	 */
-	suspend fun trackAllFavourites(): Int {
-		var added = 0
-		for (category in db.favouriteCategoriesDao().getAll()) {
-			for (row in db.favouritesDao().observeByCategory(category.categoryId).first()) {
-				if (db.tracksDao().find(row.manga.mangaId) != null) {
-					continue
-				}
-				db.tracksDao().upsert(
-					TrackEntity(
-						mangaId = row.manga.mangaId,
-						lastChapterId = 0L,
-						lastChapterDate = 0L,
-						newChapters = 0,
-						lastCheck = 0L,
-						lastError = null,
-					),
-				)
-				added++
-			}
-		}
-		return added
-	}
+	/**
+	 * Watches every saved title whose category has tracking on.
+	 *
+	 * Scoped as the Android app scopes it: favourites, and only categories carrying the
+	 * `track` flag. Favourites in this app is the whole library, so the old name promised
+	 * less than it did; the flag is what lets a shelf of finished titles opt out.
+	 *
+	 * Returns how many titles this added.
+	 */
+	suspend fun trackEverythingKept(): Int = db.tracksDao().trackEverythingKept()
+
 
 	suspend fun clearNew(mangaId: Long) = db.tracksDao().clearNew(mangaId)
 

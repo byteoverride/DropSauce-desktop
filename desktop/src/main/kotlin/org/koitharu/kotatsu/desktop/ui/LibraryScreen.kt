@@ -24,6 +24,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -212,6 +213,12 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 			onDismiss = { manageTarget = null },
 			onRename = { name ->
 				scope.launch { state.library.renameCategory(category.categoryId, name) }
+				manageTarget = null
+			},
+			onSetTracked = { tracked ->
+				// The app scope: this can untrack a few hundred titles and must not be
+				// abandoned halfway by closing the dialog.
+				state.scope.launch { state.library.setCategoryTracked(category.categoryId, tracked) }
 				manageTarget = null
 			},
 			onDelete = {
@@ -634,6 +641,7 @@ private fun ManageCategoryDialog(
 	category: FavouriteCategoryEntity,
 	onDismiss: () -> Unit,
 	onRename: (String) -> Unit,
+	onSetTracked: (Boolean) -> Unit,
 	onDelete: () -> Unit,
 ) {
 	var name by remember(category.categoryId) { mutableStateOf(category.title) }
@@ -648,6 +656,26 @@ private fun ManageCategoryDialog(
 					label = { Text("Name") },
 					singleLine = true,
 				)
+				Row(
+					verticalAlignment = Alignment.CenterVertically,
+					horizontalArrangement = Arrangement.spacedBy(12.dp),
+				) {
+					Switch(
+						checked = category.track,
+						onCheckedChange = { onSetTracked(it) },
+					)
+					Column {
+						Text("Check for new chapters", style = MaterialTheme.typography.bodyLarge)
+						Text(
+							// Saying what it costs, because it is one live request per
+							// title every time a check runs.
+							text = "Titles here are included when Updates checks. " +
+								"Turn it off for a shelf you have finished with.",
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+				}
 				Text(
 					text = "Deleting a category removes it and its entries. " +
 						"The titles themselves stay in your history.",

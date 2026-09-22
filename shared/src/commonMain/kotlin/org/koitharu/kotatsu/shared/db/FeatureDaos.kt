@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Embedded
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Relation
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
@@ -158,6 +159,83 @@ interface TracksDao {
 	/** Titles with something new, for marking them where the reader keeps them. */
 	@Query("SELECT manga_id FROM tracks WHERE chapters_new > 0")
 	fun observeUpdatedIds(): Flow<List<Long>>
+
+	/**
+	 * Starts watching every saved title whose category has tracking on.
+	 *
+	 * Scoped the way the Android app scopes it: favourites only, and only categories with
+	 * the `track` flag, which is what that column has always been for and which desktop
+	 * ignored. History alone does not qualify, matching Android's default, where watching
+	 * read-but-unsaved titles is a setting the reader turns on rather than something the
+	 * app decides for them.
+	 *
+	 * OR IGNORE rather than an upsert, so a title already watched keeps the chapter it was
+	 * last seen at. An upsert would reset it and the next check would call the whole
+	 * archive new.
+	 *
+	 * One statement rather than a query per title: over several hundred saved titles the
+	 * loop it replaces was two round trips each.
+	 */
+	@Query(
+		"INSERT OR IGNORE INTO tracks " +
+			"(manga_id, last_chapter_id, last_chapter_date, chapters_new, last_check, last_error) " +
+			"SELECT m.manga_id, 0, 0, 0, 0, NULL FROM manga m WHERE m.manga_id IN (" +
+			"SELECT f.manga_id FROM favourites f " +
+			"JOIN favourite_categories c ON c.category_id = f.category_id " +
+			"WHERE f.deleted_at = 0 AND c.track = 1)",
+	)
+	suspend fun insertTracksForEverythingKept()
+
+	/** How many qualify but are not watched yet, which is what an insert would add. */
+	@Query(
+		"SELECT COUNT(*) FROM manga m WHERE m.manga_id NOT IN (SELECT manga_id FROM tracks) " +
+			"AND m.manga_id IN (" +
+			"SELECT f.manga_id FROM favourites f " +
+			"JOIN favourite_categories c ON c.category_id = f.category_id " +
+			"WHERE f.deleted_at = 0 AND c.track = 1)",
+	)
+	suspend fun countUntrackedKept(): Int
+
+	/**
+	 * Stops watching the titles in [categoryId] that no tracked category still holds.
+	 *
+	 * Only ever called when the reader turns a category's tracking off, never as a sweep.
+	 * A title can also be watched because somebody asked for it directly, and a blanket
+	 * "remove anything not covered by a category" would throw those away without being
+	 * asked. The second clause is what keeps a title filed in two categories, one of them
+	 * still tracked, from being dropped.
+	 */
+	@Query(
+		"DELETE FROM tracks WHERE manga_id IN (" +
+			"SELECT manga_id FROM favourites WHERE deleted_at = 0 AND category_id = :categoryId" +
+			") AND manga_id NOT IN (" +
+			"SELECT f.manga_id FROM favourites f " +
+			"JOIN favourite_categories c ON c.category_id = f.category_id " +
+			"WHERE f.deleted_at = 0 AND c.track = 1)",
+	)
+	suspend fun untrackCategory(categoryId: Long)
+
+	/**
+	 * Starts watching everything kept, and says how many that added.
+	 *
+	 * Counted and inserted in one transaction because Room will only let an INSERT return
+	 * void or a rowid, and a count taken outside the transaction could be reported after
+	 * something else had already changed it.
+	 */
+	@Transaction
+	suspend fun trackEverythingKept(): Int {
+		val added = countUntrackedKept()
+		insertTracksForEverythingKept()
+		return added
+	}
+
+	/** Starts tracking one title, leaving an existing watch untouched. */
+	@Query(
+		"INSERT OR IGNORE INTO tracks " +
+			"(manga_id, last_chapter_id, last_chapter_date, chapters_new, last_check, last_error) " +
+			"VALUES (:mangaId, 0, 0, 0, 0, NULL)",
+	)
+	suspend fun trackIfNew(mangaId: Long)
 
 	/** Removes track rows whose title is gone. Cheap, and keeps the table honest. */
 	@Query("DELETE FROM tracks WHERE manga_id NOT IN (SELECT manga_id FROM manga)")
