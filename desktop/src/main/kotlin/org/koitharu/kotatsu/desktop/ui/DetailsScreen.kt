@@ -18,6 +18,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +41,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koitharu.kotatsu.desktop.feature.suggestions.RelatedTitlesStrip
 import org.koitharu.kotatsu.parsers.model.Manga
+import org.koitharu.kotatsu.desktop.feature.download.DownloadFeature
+import org.koitharu.kotatsu.desktop.feature.download.DownloadItem
+import org.koitharu.kotatsu.desktop.feature.download.DownloadState
+import org.koitharu.kotatsu.desktop.feature.download.ChapterSelection
+import org.koitharu.kotatsu.desktop.feature.download.branchesOf
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.shared.db.HistoryEntity
@@ -68,6 +74,13 @@ fun DetailsScreen(
 	val savedIn by remember(seed.id) { state.library.observeCategoriesOf(seed) }
 		.collectAsState(emptySet())
 	var history: HistoryEntity? by remember(seed.id) { mutableStateOf(null) }
+	var choosingDownload by remember(seed.id) { mutableStateOf(false) }
+	var downloadNotice: String? by remember(seed.id) { mutableStateOf(null) }
+	// The same queue the Downloads screen shows. DownloadFeature.repository is public
+	// precisely so a second one is never started against the same database.
+	val downloads = remember(state) { DownloadFeature.repository(state.featureContext) }
+	val queued by remember(seed.id) { downloads.observeFor(seed.id) }.collectAsState(emptyList())
+	val queuedByChapter = remember(queued) { queued.associateBy { it.chapterId } }
 
 	LaunchedEffect(seed.id) { history = state.library.findHistory(seed) }
 
@@ -95,6 +108,29 @@ fun DetailsScreen(
 	}
 
 	val chapters = manga.chapters.orEmpty()
+
+	if (choosingDownload) {
+		DownloadChaptersDialog(
+			chapters = chapters,
+			lastReadChapterId = history?.chapterId,
+			alreadyQueued = queuedByChapter.keys,
+			onDismiss = { choosingDownload = false },
+			onConfirm = { selection ->
+				choosingDownload = false
+				val wanted = selection.select(chapters).filterNot { it.id in queuedByChapter.keys }
+				// The app scope: queueing writes rows and a title's chapter list can be
+				// long, so leaving the screen must not abandon it half written.
+				state.scope.launch {
+					val added = downloads.download(manga, wanted)
+					downloadNotice = when {
+						added > 0 -> "Queued $added ${if (added == 1) "chapter" else "chapters"}."
+						else -> "Nothing to queue; those chapters are already downloaded."
+					}
+				}
+			},
+		)
+	}
+
 	Column(Modifier.fillMaxSize()) {
 		TopBar(
 			title = manga.title,
@@ -131,6 +167,19 @@ fun DetailsScreen(
 			OutlinedButton(onClick = { choosingCategories = true }) {
 				Text(if (savedIn.isEmpty()) "Add to library" else "In library (${savedIn.size})")
 			}
+			if (chapters.isNotEmpty()) {
+				val done = queued.count { it.state == DownloadState.DONE }
+				OutlinedButton(onClick = { choosingDownload = true }) {
+					Text(if (done > 0) "Download ($done saved)" else "Download")
+				}
+			}
+		}
+		downloadNotice?.let { message ->
+			Text(
+				text = message,
+				style = MaterialTheme.typography.bodyMedium,
+				modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+			)
 		}
 		when {
 			loading && chapters.isEmpty() -> LoadingBox()
@@ -171,6 +220,7 @@ fun DetailsScreen(
 						ChapterRow(
 							chapter = chapter,
 							isCurrent = chapter.id == history?.chapterId,
+							download = queuedByChapter[chapter.id],
 							onClick = { onRead(chapters, chapters.indexOf(chapter), 0) },
 						)
 						HorizontalDivider()
@@ -306,8 +356,89 @@ private fun Header(manga: Manga, state: AppState, client: okhttp3.OkHttpClient) 
 	}
 }
 
+/**
+ * Which chapters to queue.
+ *
+ * The four choices the Android app offers, in the same order, because someone who uses
+ * both should not have to work out that they are the same feature. Each one shows how
+ * many chapters it would actually add, counting out what is already downloaded, so the
+ * size of the thing is visible before it starts rather than after.
+ */
 @Composable
-private fun ChapterRow(chapter: MangaChapter, isCurrent: Boolean, onClick: () -> Unit) {
+private fun DownloadChaptersDialog(
+	chapters: List<MangaChapter>,
+	lastReadChapterId: Long?,
+	alreadyQueued: Set<Long>,
+	onDismiss: () -> Unit,
+	onConfirm: (ChapterSelection) -> Unit,
+) {
+	val branches = remember(chapters) { branchesOf(chapters) }
+	val options = remember(chapters, lastReadChapterId, branches) {
+		buildList {
+			add("Everything" to ChapterSelection.Everything)
+			// Only worth offering when there is more than one translation to choose
+			// between; on a single-branch title it is the same list under another name.
+			if (branches.size > 1) {
+				for (branch in branches) {
+					add("Only ${branch ?: "the unnamed branch"}" to ChapterSelection.Branch(branch))
+				}
+			}
+			if (lastReadChapterId != null) {
+				add("Everything after what I have read" to ChapterSelection.Unread(lastReadChapterId))
+			}
+			for (n in listOf(5, 10, 25)) {
+				if (chapters.size > n) add("The next $n" to ChapterSelection.First(n, null))
+			}
+		}
+	}
+	var selected by remember(options) { mutableStateOf(options.first().second) }
+
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text("Download chapters") },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+				for ((label, selection) in options) {
+					val newCount = remember(selection, alreadyQueued) {
+						selection.select(chapters).count { it.id !in alreadyQueued }
+					}
+					Row(
+						modifier = Modifier
+							.fillMaxWidth()
+							.clickable { selected = selection }
+							.padding(vertical = 8.dp),
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.spacedBy(10.dp),
+					) {
+						RadioButton(selected = selected == selection, onClick = { selected = selection })
+						Column {
+							Text(label, style = MaterialTheme.typography.bodyLarge)
+							Text(
+								text = if (newCount == 0) {
+									"nothing new"
+								} else {
+									"$newCount ${if (newCount == 1) "chapter" else "chapters"}"
+								},
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+						}
+					}
+				}
+			}
+		},
+		confirmButton = { TextButton(onClick = { onConfirm(selected) }) { Text("Download") } },
+		dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+	)
+}
+
+@Composable
+private fun ChapterRow(
+	chapter: MangaChapter,
+	isCurrent: Boolean,
+	download: DownloadItem?,
+	onClick: () -> Unit,
+) {
 	Column(
 		modifier = Modifier
 			.fillMaxWidth()
@@ -328,6 +459,16 @@ private fun ChapterRow(chapter: MangaChapter, isCurrent: Boolean, onClick: () ->
 		val meta = buildList {
 			chapter.scanlator?.takeIf { it.isNotBlank() }?.let { add(it) }
 			if (chapter.volume > 0) add("vol ${chapter.volume}")
+			// Whether this chapter is already on disk belongs next to the chapter, not
+			// only on a separate downloads screen: it is the thing you want to know while
+			// deciding what to queue.
+			when (download?.state) {
+				DownloadState.DONE -> add("saved")
+				DownloadState.RUNNING -> add("downloading ${(download.progress * 100).toInt()}%")
+				DownloadState.QUEUED -> add("queued")
+				DownloadState.FAILED -> add("download failed")
+				else -> Unit
+			}
 		}
 		if (meta.isNotEmpty()) {
 			Text(

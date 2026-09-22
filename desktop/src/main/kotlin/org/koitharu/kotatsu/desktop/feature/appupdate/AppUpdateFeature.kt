@@ -25,9 +25,14 @@ object AppUpdateFeature : Feature {
 	/** Upwards arrow: the thing you do with a newer version. */
 	override val glyph: String = "↑"
 
-	override val isTopLevel: Boolean = false
-
-	override val settingsTitle: String = "App update"
+	/**
+	 * On the rail, unlike the other tools.
+	 *
+	 * Its dot is the only one that means "go and do something you cannot discover any
+	 * other way". Buried in Settings it would surface on the Settings dot along with
+	 * everything else, which says something needs attention without saying what.
+	 */
+	override val isTopLevel: Boolean = true
 
 	/**
 	 * One repository per shell.

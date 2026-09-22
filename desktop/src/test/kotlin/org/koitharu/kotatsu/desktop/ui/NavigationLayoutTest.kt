@@ -42,7 +42,7 @@ class NavigationLayoutTest {
 	@Test
 	fun `the rail stays short enough to read`() {
 		val railed = all.count { it.isTopLevel } + shellRoots
-		assertTrue(railed <= 10, "the navigation rail is back up to $railed destinations")
+		assertTrue(railed <= 11, "the navigation rail is back up to $railed destinations")
 	}
 
 	// Content on the rail, configuration and maintenance in Settings. Bookmarks and local
@@ -50,7 +50,7 @@ class NavigationLayoutTest {
 	@Test
 	fun `the tools are the ones in Settings`() {
 		assertEquals(
-			listOf("appupdate", "backup", "curate", "localx", "migration", "readerx", "stats", "tracking"),
+			listOf("backup", "curate", "localx", "migration", "readerx", "stats", "tracking"),
 			all.filterNot { it.isTopLevel }.map { it.id }.sorted(),
 		)
 	}
@@ -58,7 +58,7 @@ class NavigationLayoutTest {
 	@Test
 	fun `what is left on the rail is content`() {
 		assertEquals(
-			listOf("bookmarks", "discover", "downloads", "local", "suggestions", "updates"),
+			listOf("appupdate", "bookmarks", "discover", "downloads", "local", "suggestions", "updates"),
 			all.filter { it.isTopLevel }.map { it.id }.sorted(),
 		)
 	}
