@@ -63,15 +63,22 @@ compose.desktop {
 
 		nativeDistributions {
 			targetFormats(TargetFormat.Deb)
-			packageName = "dropsauce"
-			packageVersion = "0.9.7"
+			// The display name, which is what a launcher shows. The deb package name
+			// must stay lowercase, so linux.packageName overrides it below.
+			packageName = "DropSauce"
+			packageVersion = "0.9.8"
 			description = "A comic and novel reader"
 			vendor = "DropSauce"
 			licenseFile.set(rootProject.file("LICENSE"))
 
 			linux {
+				packageName = "dropsauce"
 				menuGroup = "Graphics"
 				appCategory = "Graphics"
+				// Without this jpackage ships its own default, which is the Kotlin logo,
+				// and every installed copy shows that in the application menu. The same
+				// file is on the classpath so the running window uses it too.
+				iconFile.set(project.file("src/main/resources/dropsauce.png"))
 			}
 		}
 	}

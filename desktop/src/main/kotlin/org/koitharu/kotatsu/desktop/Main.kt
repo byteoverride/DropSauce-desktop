@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.window.rememberWindowState
 import org.koitharu.kotatsu.core.util.ext.DebugFlags
 import org.koitharu.kotatsu.desktop.ui.AppState
@@ -61,6 +62,10 @@ private fun launchUi() = application {
 	Window(
 		onCloseRequest = ::exitApplication,
 		title = "DropSauce",
+		// The .desktop entry's icon only covers the launcher. A window carries its own,
+		// and without one the running app shows the toolkit default in the taskbar and
+		// the alt-tab switcher. Same file the package is built from.
+		icon = painterResource("dropsauce.png"),
 		state = rememberWindowState(width = 1280.dp, height = 840.dp),
 	) {
 		// MaterialExpressiveTheme and MotionScheme.expressive() are the same Material 3
