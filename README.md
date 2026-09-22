@@ -132,6 +132,42 @@ A native desktop build of the reader, written in Compose Multiplatform. It is a 
 front end over the same shared logic, not a rewrite, and the Android app still builds
 untouched.
 
+<p align="center">
+  <img src="assets/desktop_library-preview.webp" alt="DropSauce desktop library screen, showing categories, the chapter length filter and the cover grid" width="90%" />
+</p>
+
+<p align="center">
+  <sub>The library on Linux, filtered by category and by length</sub>
+</p>
+
+### Filtering a shelf by length
+
+The library filters by how many chapters a title has, which is the quick way to find the
+ones on a "read it once it is long enough" shelf that have grown past your threshold.
+
+<p align="center">
+  <img src="assets/desktop_chapter-filter-preview.webp" alt="The chapter length filter, with buckets from 1 to 25 up to Over 500 and a 100 or more bucket, above a bar offering to load the counts that are still unknown" width="90%" />
+</p>
+
+Counts are read from the database, not fetched while you scroll. They get there three
+ways:
+
+- **From your reading history, at startup.** Free, local, no requests. If you have read a
+  title, the app already knows how long it was.
+- **From opening, reading or tracking a title**, as before.
+- **From the Load counts button**, for everything else. A title you have never opened has
+  no count anywhere on your machine, and the only way to learn one is to ask the source.
+  That runs on a button rather than on its own, scoped to the category you have selected,
+  four requests at a time, and you can stop it.
+
+The bar says how many titles in view still have no count, so an empty result never leaves
+you guessing whether nothing matched or nothing had been counted yet.
+
+Buckets run 1 to 25, 26 to 100, 101 to 500 and Over 500, plus **100 or more**, which
+deliberately overlaps the others because emptying a shelf at a threshold is a different
+question from browsing one. Once filtered, the whole set can be moved into another
+category in one step.
+
 ### Install
 
 Grab `dropsauce_<version>_amd64.deb` from the
