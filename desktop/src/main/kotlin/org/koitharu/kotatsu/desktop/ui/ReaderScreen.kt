@@ -562,9 +562,13 @@ private fun PageImage(
 ) {
 	var bitmap: ImageBitmap? by remember(page.id) { mutableStateOf(null) }
 	var failed by remember(page.id) { mutableStateOf(false) }
+	var reason: String? by remember(page.id) { mutableStateOf(null) }
+	// Bumped by the retry button, which re-runs the effect for this page alone.
+	var retry by remember(page.id) { mutableStateOf(0) }
 
-	LaunchedEffect(page.id) {
+	LaunchedEffect(page.id, retry) {
 		failed = false
+		reason = null
 		bitmap = null
 		for (attempt in 1..PAGE_ATTEMPTS) {
 			if (attempt > 1) delay(PAGE_RETRY_DELAY_MS * (attempt - 1))
@@ -574,6 +578,7 @@ private fun PageImage(
 				return@LaunchedEffect
 			}
 		}
+		reason = pageSource.failureReason(page)
 		failed = true
 	}
 
@@ -587,11 +592,20 @@ private fun PageImage(
 		)
 
 		failed -> Box(modifier = modifier, contentAlignment = Alignment.Center) {
-			Text(
-				text = "This page could not be loaded.",
-				style = MaterialTheme.typography.bodyMedium,
-				color = Color.White.copy(alpha = 0.7f),
-			)
+			Column(
+				horizontalAlignment = Alignment.CenterHorizontally,
+				verticalArrangement = Arrangement.spacedBy(6.dp),
+			) {
+				Text(
+					// Saying which failure it was turns an unanswerable report into one
+					// somebody can act on, and tells the reader whether waiting will help.
+					text = reason?.let { "This page could not be loaded: $it." }
+						?: "This page could not be loaded.",
+					style = MaterialTheme.typography.bodyMedium,
+					color = Color.White.copy(alpha = 0.7f),
+				)
+				TextButton(onClick = { retry++ }) { Text("Try again") }
+			}
 		}
 
 		else -> LoadingBox(modifier)

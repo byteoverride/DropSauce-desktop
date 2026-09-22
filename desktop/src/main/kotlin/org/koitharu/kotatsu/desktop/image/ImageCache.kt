@@ -21,7 +21,14 @@ import java.util.concurrent.ConcurrentHashMap
  * several sources serve reading fine while 403ing their cover CDN for a client that did
  * not send the source's headers. Recorded as D19.
  */
-class ImageCache(maxEntries: Int = 300) {
+class ImageCache(
+	maxEntries: Int = 300,
+	/**
+	 * Injected so the failure window is testable without sleeping through it. The same
+	 * shape `TrackerRepository` and `openLibraryDatabase` already use.
+	 */
+	private val now: () -> Long = System::currentTimeMillis,
+) {
 
 	/**
 	 * Capacity, adjustable at runtime so the settings control takes effect immediately
@@ -42,7 +49,7 @@ class ImageCache(maxEntries: Int = 300) {
 	)
 
 	/**
-	 * How many times each url has failed.
+	 * What has gone wrong for each url, and how often.
 	 *
 	 * A previous version blacklisted a url on its first failure. That was wrong and it
 	 * produced blank pages in the reader: MangaDex@Home nodes legitimately 404 individual
@@ -50,14 +57,57 @@ class ImageCache(maxEntries: Int = 300) {
 	 * Permanently poisoning the url made a recoverable miss look like a broken chapter.
 	 * Counting instead still stops a genuinely dead cover from being refetched on every
 	 * recomposition.
+	 *
+	 * The reason is kept as well as the count. Every one of these failures was silent
+	 * outside a debug build, so "the cover is sometimes missing" was unanswerable: a 403,
+	 * a timeout and a format Skia cannot read are the same blank square, and they need
+	 * three different fixes.
 	 */
-	private val failures = ConcurrentHashMap<String, Int>()
+	private val failures = ConcurrentHashMap<String, Failure>()
 
-	fun isExhausted(url: String): Boolean = (failures[url] ?: 0) >= MAX_ATTEMPTS
+	private data class Failure(
+		val count: Int,
+		val reason: String,
+		/** A format Skia cannot read will not start working; a timeout might. */
+		val permanent: Boolean,
+		val atMillis: Long,
+	)
+
+	/**
+	 * Whether this url has been given up on.
+	 *
+	 * A transient run of failures expires. Without that, a network blip while a grid of
+	 * sixty covers loads at once blanks those covers for the rest of the session, with no
+	 * retry on scrolling back and no way to ask again short of restarting, which is
+	 * exactly what "sometimes the cover is missing" looks like from the outside.
+	 */
+	fun isExhausted(url: String): Boolean {
+		val failure = failures[url] ?: return false
+		if (failure.permanent) return true
+		if (now() - failure.atMillis >= RETRY_AFTER_MS) {
+			failures.remove(url)
+			return false
+		}
+		return failure.count >= MAX_ATTEMPTS
+	}
+
+	/** Why [url] last failed, for a caller that would rather say so than show a blank. */
+	fun failureReason(url: String): String? = failures[url]?.reason
 
 	/** Forgets a url's failures, so a freshly re-resolved address starts clean. */
 	fun forget(url: String) {
 		failures.remove(url)
+	}
+
+	private fun record(url: String, reason: String, permanent: Boolean) {
+		failures.compute(url) { _, previous ->
+			Failure(
+				count = (previous?.count ?: 0) + 1,
+				reason = reason,
+				permanent = permanent,
+				atMillis = now(),
+			)
+		}
 	}
 
 	suspend fun load(url: String, client: OkHttpClient): ImageBitmap? {
@@ -66,14 +116,20 @@ class ImageCache(maxEntries: Int = 300) {
 		return withContext(Dispatchers.IO) {
 			val bytes = try {
 				client.newCall(Request.Builder().url(url).build()).execute().use { response ->
-					if (response.isSuccessful) response.body?.bytes() else null
+					if (response.isSuccessful) {
+						response.body?.bytes()
+					} else {
+						record(url, "the source answered ${response.code}", permanent = false)
+						return@withContext null
+					}
 				}
 			} catch (e: Exception) {
 				e.printStackTraceDebug()
-				null
+				record(url, describe(e), permanent = false)
+				return@withContext null
 			}
 			if (bytes == null || bytes.isEmpty()) {
-				failures.merge(url, 1, Int::plus)
+				record(url, "the source sent an empty response", permanent = false)
 				return@withContext null
 			}
 			val bitmap = try {
@@ -86,7 +142,7 @@ class ImageCache(maxEntries: Int = 300) {
 			}
 			if (bitmap == null) {
 				// A decode failure will not fix itself on retry, unlike a transport miss.
-				failures[url] = MAX_ATTEMPTS
+				record(url, "this image format is not supported", permanent = true)
 				return@withContext null
 			}
 			entries[url] = bitmap
@@ -94,8 +150,29 @@ class ImageCache(maxEntries: Int = 300) {
 		}
 	}
 
+	/**
+	 * A failure the reader can act on, rather than a stack trace it will never see.
+	 *
+	 * Deliberately not the exception's own message, which for a socket timeout is a host
+	 * and port and for an SSL problem is a paragraph about certificate paths.
+	 */
+	private fun describe(e: Exception): String = when (e) {
+		is java.net.SocketTimeoutException -> "the source did not answer in time"
+		is java.net.UnknownHostException -> "that source's address could not be resolved"
+		is javax.net.ssl.SSLException -> "that source's certificate could not be verified"
+		is java.io.IOException -> "the connection failed"
+		else -> e::class.simpleName ?: "the request failed"
+	}
+
 	private companion object {
 
 		const val MAX_ATTEMPTS = 3
+
+		/**
+		 * How long a run of transient failures is honoured before the url is worth
+		 * another try. Long enough that a dead cover is not refetched on every scroll,
+		 * short enough that a blip does not outlive the reader's patience.
+		 */
+		const val RETRY_AFTER_MS = 60_000L
 	}
 }

@@ -27,6 +27,15 @@ interface ReaderPageSource {
 	 * where a page 404s on first touch and succeeds once the node has it cached.
 	 */
 	suspend fun image(page: MangaPage, attempt: Int): ImageBitmap?
+
+	/**
+	 * Why the last [image] call for [page] came back null, if anything is known.
+	 *
+	 * Exists because "This page could not be loaded" is not a usable bug report. A 403
+	 * from the source, a timeout and an image format Skia cannot read all produced that
+	 * one sentence, and they have nothing to do with each other.
+	 */
+	fun failureReason(page: MangaPage): String? = null
 }
 
 /** Pages fetched from a remote source through its own parser and client. */
@@ -38,14 +47,33 @@ class RemotePageSource(
 	override suspend fun pages(chapter: MangaChapter): List<MangaPage> =
 		withContext(Dispatchers.IO) { state.sources.session(source).parser.getPages(chapter) }
 
+	/** The url each page last resolved to, so a failure can be explained afterwards. */
+	private val resolved = java.util.concurrent.ConcurrentHashMap<Long, String>()
+
 	override suspend fun image(page: MangaPage, attempt: Int): ImageBitmap? {
 		val url = runCatching {
 			withContext(Dispatchers.IO) { state.sources.pageUrl(source, page) }
-		}.getOrNull() ?: return null
+		}.getOrNull()
+		if (url == null) {
+			unresolvable += page.id
+			return null
+		}
+		unresolvable -= page.id
+		resolved[page.id] = url
 		// Forget past failures for this url: a retry here is deliberate, and the cache's
 		// own attempt counter would otherwise refuse the very retry that fixes D20.
 		state.images.forget(url)
 		return state.images.load(url, state.sources.session(source).client)
+	}
+
+	/** Pages whose address the source would not give up at all. */
+	private val unresolvable = java.util.Collections.newSetFromMap(
+		java.util.concurrent.ConcurrentHashMap<Long, Boolean>(),
+	)
+
+	override fun failureReason(page: MangaPage): String? = when {
+		page.id in unresolvable -> "the source would not give an address for this page"
+		else -> resolved[page.id]?.let { state.images.failureReason(it) }
 	}
 }
 

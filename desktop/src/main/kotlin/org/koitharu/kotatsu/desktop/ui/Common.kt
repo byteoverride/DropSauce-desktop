@@ -57,8 +57,10 @@ fun RemoteImage(
 ) {
 	var bitmap: ImageBitmap? by remember(url) { mutableStateOf(null) }
 	var settled by remember(url) { mutableStateOf(false) }
+	var reason: String? by remember(url) { mutableStateOf(null) }
 	LaunchedEffect(url) {
 		bitmap = url?.let { cache.load(it, client) }
+		reason = if (bitmap == null) url?.let { cache.failureReason(it) } else null
 		settled = true
 	}
 	val fill = if (background.isSpecified) background else MaterialTheme.colorScheme.surfaceVariant
@@ -73,10 +75,14 @@ fun RemoteImage(
 			)
 		} else if (settled) {
 			Text(
-				text = "no cover",
+				// "no cover" was the same square whether the source had none, answered
+				// 403, or served something Skia cannot read. Only the first is normal.
+				text = reason ?: "no cover",
 				style = MaterialTheme.typography.labelSmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 				textAlign = TextAlign.Center,
+				maxLines = 3,
+				overflow = TextOverflow.Ellipsis,
 				modifier = Modifier.align(Alignment.Center).padding(4.dp),
 			)
 		}
