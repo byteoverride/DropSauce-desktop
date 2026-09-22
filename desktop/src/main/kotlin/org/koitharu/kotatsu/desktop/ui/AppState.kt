@@ -48,7 +48,7 @@ import org.koitharu.kotatsu.shared.db.openLibraryDatabase
 import org.koitharu.kotatsu.shared.io.AppPaths
 import org.koitharu.kotatsu.shared.settings.JsonSettingsStore
 import org.koitharu.kotatsu.shared.settings.SettingsStore
-import org.koitharu.kotatsu.shared.io.XdgAppPaths
+import org.koitharu.kotatsu.shared.io.defaultAppPaths
 import java.util.concurrent.TimeUnit
 
 /** Where the user is. A plain stack; there is no navigation library on desktop. */
@@ -111,7 +111,7 @@ sealed interface Screen {
  * Held for the process lifetime and passed down explicitly rather than through a
  * CompositionLocal, so each screen's dependencies stay visible in its signature.
  */
-class AppState(val paths: AppPaths = XdgAppPaths()) {
+class AppState(val paths: AppPaths = defaultAppPaths()) {
 
 	val settings: SettingsStore = JsonSettingsStore(paths.config / SETTINGS_FILE)
 
@@ -340,7 +340,7 @@ class AppState(val paths: AppPaths = XdgAppPaths()) {
 
 /** Creates the app's directories, then its state. Fails loudly at startup, not later. */
 fun createAppState(): AppState {
-	val paths = XdgAppPaths()
+	val paths = defaultAppPaths()
 	paths.ensureDirectories(FileSystem.SYSTEM)
 	return AppState(paths)
 }

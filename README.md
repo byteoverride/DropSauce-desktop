@@ -188,10 +188,10 @@ in `~/.local/share/dropsauce/`.
 **Windows**, `DropSauce-<version>.msi`, around 76 MB: double click it and choose a folder.
 Uninstall through Apps and Features.
 
-> Windows has not been run on real hardware yet, and two things are already known to be
-> wrong there. Your library is written to `C:\Users\<you>\.local\share\dropsauce`
-> instead of `%APPDATA%`, and the downloads folder picker in Settings will not open.
-> Both are being fixed; nothing else is known to differ.
+> Windows has not been run on real hardware yet. Your library goes to
+> `%APPDATA%\DropSauce` and the cache to `%LOCALAPPDATA%\DropSauce`, as they should.
+> An install from `desktop-v0.9.10` or earlier wrote to `.local\share` under your user
+> folder instead; that library is still found and used, and nothing is moved.
 
 Copy your library directory somewhere safe before trying a new build if you care about
 what is in it.

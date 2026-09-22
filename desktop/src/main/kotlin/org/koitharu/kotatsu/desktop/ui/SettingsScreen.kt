@@ -30,6 +30,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import java.io.File
+import javax.swing.JFileChooser
+import javax.swing.UIManager
 import kotlinx.coroutines.launch
 import org.koitharu.kotatsu.shared.settings.SettingsData
 import org.koitharu.kotatsu.shared.settings.ThemeMode
@@ -187,14 +190,7 @@ private fun ToolRow(
 }
 
 
-/**
- * A folder, chosen with the desktop's own picker.
- *
- * AWT's [java.awt.FileDialog] rather than Swing's JFileChooser: on Linux the AWT dialog
- * is the one the desktop environment themes, and a Swing dialog in a Compose window
- * looks like it belongs to a different application. It needs the directory property set,
- * which is the documented way to make it pick folders instead of files.
- */
+/** A folder setting: what it is now, and a way to change it. */
 @Composable
 private fun DirectoryRow(
 	label: String,
@@ -212,7 +208,7 @@ private fun DirectoryRow(
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-			Button(onClick = { chooseDirectory(label)?.let(onChange) }) { Text("Choose") }
+			Button(onClick = { chooseDirectory(label, value ?: fallback)?.let(onChange) }) { Text("Choose") }
 			if (value != null) {
 				OutlinedButton(onClick = { onChange(null) }) { Text("Use default") }
 			}
@@ -220,35 +216,36 @@ private fun DirectoryRow(
 	}
 }
 
-/** Returns the chosen folder, or null when the picker was dismissed. */
-private fun chooseDirectory(title: String): String? {
-	val previous = System.getProperty("apple.awt.fileDialogForDirectories")
-	return try {
-		// Documented switch that turns FileDialog into a directory picker. Set around the
-		// call and put back, because it is a global property and leaving it on would make
-		// every later file dialog in the process pick folders.
-		System.setProperty("apple.awt.fileDialogForDirectories", "true")
-		val dialog = java.awt.FileDialog(null as java.awt.Frame?, title, java.awt.FileDialog.LOAD)
-		dialog.isMultipleMode = false
-		dialog.isVisible = true
-		val directory = dialog.directory ?: return null
-        val file = dialog.file
-		val chosen = if (file == null) java.io.File(directory) else java.io.File(directory, file)
-		// A picker that would not give up a folder gives up the file's parent instead,
-		// which is the folder the reader was looking at and what they meant.
-		val asDirectory = if (chosen.isDirectory) chosen else chosen.parentFile
-		asDirectory?.absolutePath
-	} catch (e: Throwable) {
-		// A headless or unusual session has no picker. The setting is still editable by
-		// hand in the settings file, so this is a missing convenience, not a failure.
+/**
+ * A folder, chosen with a real directory picker.
+ *
+ * `JFileChooser` in `DIRECTORIES_ONLY` mode, not `java.awt.FileDialog`. The AWT dialog
+ * only selects directories on macOS, through the `apple.awt.fileDialogForDirectories`
+ * property, which is exactly what this used to set: on Windows it cannot pick a folder at
+ * all, and on Linux the property means nothing. Swing's chooser is the only thing in the
+ * JDK that does this on every platform.
+ *
+ * Returns the chosen folder, or null when the dialog was dismissed or cannot be shown.
+ */
+private fun chooseDirectory(title: String, startIn: String?): String? = try {
+	// So it does not look like a 1998 Java applet next to the rest of the window. Failing
+	// to set it is not a reason to refuse the dialog, only to draw it plainly.
+	runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
+	val chooser = JFileChooser(startIn?.let(::File)?.takeIf { it.isDirectory })
+	chooser.dialogTitle = title
+	chooser.fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+	chooser.isMultiSelectionEnabled = false
+	// Nothing to create a file with, so the filter would only be a confusing empty menu.
+	chooser.isAcceptAllFileFilterUsed = false
+	if (chooser.showDialog(null, "Use this folder") == JFileChooser.APPROVE_OPTION) {
+		chooser.selectedFile?.absolutePath
+	} else {
 		null
-	} finally {
-		if (previous == null) {
-			System.clearProperty("apple.awt.fileDialogForDirectories")
-		} else {
-			System.setProperty("apple.awt.fileDialogForDirectories", previous)
-		}
 	}
+} catch (e: java.awt.HeadlessException) {
+	// No display. The setting is still editable by hand in the settings file, so this is
+	// a missing convenience rather than a failure.
+	null
 }
 
 /**

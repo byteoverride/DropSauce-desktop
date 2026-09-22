@@ -895,6 +895,39 @@ blanket "remove anything no category covers" would throw those away.
 Every insert is OR IGNORE. An upsert would reset the last seen chapter and
 the next check would report the whole archive as new.
 
+### D30. Windows, and the two things that compiled but were wrong
+
+The Windows installer needed no Kotlin changed, which is the JVM and
+Compose doing their job, and is not the same as the code being correct
+there. Two pieces compiled perfectly on Windows and did the wrong thing.
+
+`XdgAppPaths` was the only `AppPaths`, and it does not fail off Linux: it
+falls back to `~/.local/share`, so a Windows install wrote its library to
+`C:\Users\<you>\.local\share\dropsauce`. No error, no warning, just a
+database somewhere no Windows user would look for it or back up.
+`WindowsAppPaths` puts data and settings in `%APPDATA%` and the cache in
+`%LOCALAPPDATA%`, which is what that split is for: roaming data follows a
+user between machines on a domain and a cache must not.
+
+`defaultAppPaths` picks by `os.name` and prefers an existing library over
+a correct location. The Windows build shipped before this existed, so
+someone who installed it would otherwise open the app to an empty library
+sitting beside a perfectly good database. Nothing is moved: relocating a
+database while deciding where it lives is the one operation that cannot be
+half done safely.
+
+The downloads folder picker set `apple.awt.fileDialogForDirectories`,
+which is macOS only. `java.awt.FileDialog` cannot select a directory
+anywhere else, so the button did nothing at all on Windows and on Linux.
+It was written and never opened once, which is how that ships. Swing's
+`JFileChooser` in `DIRECTORIES_ONLY` is the only thing in the JDK that
+picks a folder on every platform, and this one was actually opened and
+looked at before being called done.
+
+The lesson worth keeping: a type system cannot tell you that a path
+convention is wrong for a platform, and a test suite cannot tell you that
+a dialog never opens. Both passed everything.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:
