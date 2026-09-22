@@ -8,7 +8,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jetbrains.skia.Image
 import org.koitharu.kotatsu.core.util.ext.printStackTraceDebug
-import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -23,6 +22,17 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class ImageCache(
 	maxEntries: Int = 300,
+	/**
+	 * How much decoded image data to keep, in bytes.
+	 *
+	 * The real bound. Counting entries is meaningless here because the entries are not
+	 * comparable: a cover decodes to about 4 MB and a webtoon page to anywhere up to 40,
+	 * so three hundred of one is a gigabyte and three hundred of the other is thirteen.
+	 * A machine with room for the first will die on the second, silently, because a
+	 * failed native allocation produces no Java stack trace and a packaged Windows app
+	 * has no console to print one to.
+	 */
+	maxBytes: Long = defaultBudget(),
 	/**
 	 * Injected so the failure window is testable without sleeping through it. The same
 	 * shape `TrackerRepository` and `openLibraryDatabase` already use.
@@ -41,12 +51,60 @@ class ImageCache(
 			field = value.coerceAtLeast(1)
 		}
 
-	private val entries: MutableMap<String, ImageBitmap> = Collections.synchronizedMap(
-		object : LinkedHashMap<String, ImageBitmap>(64, 0.75f, true) {
-			override fun removeEldestEntry(eldest: Map.Entry<String, ImageBitmap>): Boolean =
-				size > maxEntries
-		},
-	)
+	@Volatile
+	var maxBytes: Long = maxBytes
+		set(value) {
+			field = value.coerceAtLeast(MINIMUM_BUDGET)
+			evict()
+		}
+
+	/**
+	 * Access ordered, so eviction drops what has been looked at least recently.
+	 *
+	 * Eviction is [evict] rather than `removeEldestEntry`, which can only ever remove one
+	 * entry per insertion. One page can be larger than several it displaces, so the
+	 * overshoot has to be walked off in a loop or the budget is a suggestion.
+	 */
+	private val entries: LinkedHashMap<String, ImageBitmap> =
+		LinkedHashMap(64, 0.75f, true)
+
+	/** Guards [entries] and [bytesHeld] together: the two must not disagree. */
+	private val lock = Any()
+
+	private var bytesHeld: Long = 0L
+
+	/** Decoded size, which is what occupies memory. The encoded bytes are long gone. */
+	private fun sizeOf(bitmap: ImageBitmap): Long =
+		bitmap.width.toLong() * bitmap.height.toLong() * BYTES_PER_PIXEL
+
+	private fun put(url: String, bitmap: ImageBitmap) {
+		synchronized(lock) {
+			entries.put(url, bitmap)?.let { bytesHeld -= sizeOf(it) }
+			bytesHeld += sizeOf(bitmap)
+			evictLocked()
+		}
+	}
+
+	private fun get(url: String): ImageBitmap? = synchronized(lock) { entries[url] }
+
+	private fun evict() = synchronized(lock) { evictLocked() }
+
+	private fun evictLocked() {
+		val iterator = entries.entries.iterator()
+		// Never evicts the entry just added, however large it is: the caller is about to
+		// draw it, and returning a bitmap that is not in the cache is better than
+		// returning one that has been thrown away.
+		while (iterator.hasNext() && (bytesHeld > maxBytes || entries.size > maxEntries) && entries.size > 1) {
+			val eldest = iterator.next()
+			bytesHeld -= sizeOf(eldest.value)
+			iterator.remove()
+		}
+	}
+
+	/** What the cache is holding, for a diagnostic that would otherwise be guesswork. */
+	fun heldBytes(): Long = synchronized(lock) { bytesHeld }
+
+	fun heldCount(): Int = synchronized(lock) { entries.size }
 
 	/**
 	 * What has gone wrong for each url, and how often.
@@ -112,7 +170,7 @@ class ImageCache(
 
 	suspend fun load(url: String, client: OkHttpClient): ImageBitmap? {
 		if (url.isEmpty() || isExhausted(url)) return null
-		entries[url]?.let { return it }
+		get(url)?.let { return it }
 		return withContext(Dispatchers.IO) {
 			val bytes = try {
 				client.newCall(Request.Builder().url(url).build()).execute().use { response ->
@@ -145,7 +203,7 @@ class ImageCache(
 				record(url, "this image format is not supported", permanent = true)
 				return@withContext null
 			}
-			entries[url] = bitmap
+			put(url, bitmap)
 			bitmap
 		}
 	}
@@ -165,6 +223,26 @@ class ImageCache(
 	}
 
 	private companion object {
+
+		const val BYTES_PER_PIXEL = 4L
+
+		/** Below this the reader would be decoding the same page over and over. */
+		const val MINIMUM_BUDGET = 48L * 1024 * 1024
+
+		/**
+		 * A quarter of what the JVM will let itself grow to, between 64 MB and 1 GB.
+		 *
+		 * Tied to the heap because it is the only number available that tracks the size
+		 * of the machine, and the default heap is itself a quarter of physical memory. A
+		 * 4 GB virtual machine therefore lands around 64 MB of images rather than the
+		 * gigabytes an entry count would have allowed, which is the difference between
+		 * reading and crashing.
+		 *
+		 * Skia holds the pixels off-heap, so this does not bound the heap itself. It is a
+		 * proxy for how much room the machine has, and a proxy is what is wanted.
+		 */
+		fun defaultBudget(): Long =
+			(Runtime.getRuntime().maxMemory() / 4).coerceIn(MINIMUM_BUDGET, 1024L * 1024 * 1024)
 
 		const val MAX_ATTEMPTS = 3
 

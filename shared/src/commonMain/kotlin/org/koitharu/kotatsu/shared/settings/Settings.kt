@@ -62,6 +62,16 @@ data class SettingsData(
 	@SerialName("hidden_source_terms") val hiddenSourceTerms: List<String> = emptyList(),
 	/** Covers and pages held in memory. Higher is smoother and uses more RAM. */
 	@SerialName("image_cache_entries") val imageCacheEntries: Int = 300,
+	/**
+	 * How much decoded image data to keep, in megabytes, or null to size it from the
+	 * machine.
+	 *
+	 * The count above is not a memory bound and never was: a cover decodes to about 4 MB
+	 * and a webtoon page to as much as 40, so the same three hundred entries is one
+	 * gigabyte of one and thirteen of the other. Kept because it still caps how many
+	 * separate images are tracked; this is the bound that matters.
+	 */
+	@SerialName("image_cache_mb") val imageCacheMegabytes: Int? = null,
 	/** How many times to re-request a page image before giving up on it. */
 	@SerialName("page_attempts") val pageAttempts: Int = 3,
 	@SerialName("user_agent") val userAgent: String = DEFAULT_USER_AGENT,

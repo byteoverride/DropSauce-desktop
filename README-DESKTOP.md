@@ -123,6 +123,34 @@ default, so a third-party site being down cannot fail the build:
 ./gradlew :desktop:test -Dlive=true
 ```
 
+## When something goes wrong
+
+The app writes `dropsauce.log` next to its database: `~/.local/share/dropsauce/` on
+Linux, `%APPDATA%\DropSauce\` on Windows. It records what the app is running on and any
+uncaught exception. A packaged build on Windows has no console at all, so this is the
+only place a crash leaves a trace.
+
+The first lines of it answer most questions:
+
+```
+version   0.9.10
+os        Windows 11 10.0 amd64
+maxHeap   1024 MB
+renderApi (default)
+```
+
+`maxHeap` is the one to look at on a small machine or a virtual one. The JVM takes a
+quarter of physical memory, so a 4 GB VM gets about 1 GB, and the image cache sizes
+itself from that.
+
+If the window is slow or the app dies while scrolling, the renderer is the next thing to
+try. Skia picks one for itself and the choice is not always right on a virtual machine
+with no real GPU:
+
+```bash
+DropSauce -J-Dskiko.renderApi=SOFTWARE          # or OPENGL, or DIRECT3D on Windows
+```
+
 ## Known limitations
 
 - Native Wayland is not supported. The app renders into an AWT window, so
@@ -131,4 +159,6 @@ default, so a third-party site being down cannot fail the build:
   decode whole. `DECISIONS.md` D10 records the measurements and the
   `javax.imageio` region-decode path that would fix it.
 - AVIF pages cannot be decoded; no JVM decoder ships with Skia.
+- Nothing bounds how much memory Skia itself uses for the window, only what the image
+  cache keeps. A machine short of memory may still struggle with very long strips.
 - CBR is not supported, as that needs a RAR decoder.

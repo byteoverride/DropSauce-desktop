@@ -57,11 +57,17 @@ import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.desktop.ui.ReaderScreen
+import org.koitharu.kotatsu.desktop.feature.appupdate.AppBuild
 import org.koitharu.kotatsu.desktop.ui.Screen
+import org.koitharu.kotatsu.shared.io.defaultAppPaths
 
 fun main() {
 	// Counterpart of BaseApp setting this from BuildConfig.DEBUG on Android.
 	DebugFlags.isDebug = System.getProperty("dropsauce.debug").toBoolean()
+	// Before anything else, so a failure while opening the database is recorded too.
+	// A packaged app has no console on Windows at all, so without this a crash leaves
+	// the reader with nothing to report and nothing to read.
+	CrashLog(defaultAppPaths().data / "dropsauce.log").install(AppBuild.version)
 	launchUi()
 }
 

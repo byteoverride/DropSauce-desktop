@@ -183,14 +183,22 @@ fun ReaderScreen(
 	// collector keeps one coroutine and simply sees the latest values when it comes back
 	// round, so a fetch always runs to completion.
 	LaunchedEffect(chapterIndex) {
+		// The last attempt this served, so a bump can be told apart from a scroll.
+		var servedAttempt = appendAttempt
 		snapshotFlow { StripDemand(index, strip.size, loadedThrough, appendAttempt) }
 			.collect { demand ->
 				if (demand.loaded == 0) return@collect
 				if (demand.through >= chapters.lastIndex) return@collect
-				if (demand.index < demand.loaded - CHAPTER_PREFETCH_PAGES) return@collect
+				// Someone pressed the button. That is a request, not a prediction, so it
+				// skips the distance check: the whole reason the button exists is that
+				// the automatic join did not happen, and making it depend on the same
+				// condition that already failed would make it do nothing too.
+				val asked = demand.attempt != servedAttempt
+				if (!asked && demand.index < demand.loaded - CHAPTER_PREFETCH_PAGES) return@collect
 				// A chapter that failed stays failed until the reader asks again, rather
 				// than being retried on every page that scrolls past.
-				if (appendError != null) return@collect
+				if (!asked && appendError != null) return@collect
+				servedAttempt = demand.attempt
 				appending = true
 				append(demand.through + 1)
 				appending = false
@@ -363,8 +371,10 @@ fun ReaderScreen(
 						error = appendError,
 						hasMore = loadedThrough < chapters.lastIndex,
 						// Bumping the attempt is what re-triggers the watcher; clearing
-						// the error alone changes nothing it looks at.
-						onRetry = {
+						// the error alone changes nothing it looks at. The same lambda
+						// serves the manual nudge, because the watcher's other conditions
+						// are all satisfied by the time a reader is looking at the footer.
+						onLoadNext = {
 							appendError = null
 							appendAttempt++
 						},
@@ -381,6 +391,15 @@ fun ReaderScreen(
 			onWidthPercent = { value ->
 				state.scope.launch { state.settings.update { it.copy(webtoonWidthPercent = value) } }
 			},
+			// Relative to the chapter the visible page belongs to, not the one the screen
+			// was opened on. After the strip has run into the next chapter those differ,
+			// and stepping from the wrong one would skip or repeat a chapter.
+			onNextChapter = (currentChapterIndex + 1)
+				.takeIf { it <= chapters.lastIndex }
+				?.let { next -> { onChapterChange(next, 0) } },
+			onPreviousChapter = (currentChapterIndex - 1)
+				.takeIf { it >= 0 }
+				?.let { previous -> { onChapterChange(previous, 0) } },
 		)
 	}
 }
@@ -670,6 +689,10 @@ private fun ReaderStatusBar(
 	widthPercent: Int,
 	zoom: ZoomState,
 	onWidthPercent: (Int) -> Unit,
+	/** Null on the last chapter, and on a local comic with nothing after it. */
+	onNextChapter: (() -> Unit)?,
+	/** Null on the first chapter. */
+	onPreviousChapter: (() -> Unit)?,
 ) {
 	// Deliberately lighter than the reader's black and separated by a rule. A bar that
 	// blends into the page is a bar nobody finds, which is what the first version did.
@@ -691,6 +714,21 @@ private fun ReaderStatusBar(
 			style = MaterialTheme.typography.bodyMedium,
 			color = Color.White,
 		)
+
+		// Chapter navigation, next to the page counter rather than hidden in the top bar.
+		// The strip is supposed to run into the following chapter on its own and does not
+		// always manage it, and a reader who has reached the end of one should never have
+		// to go back out to the title to carry on.
+		VerticalDivider(modifier = Modifier.height(20.dp))
+		OutlinedButton(
+			onClick = { onPreviousChapter?.invoke() },
+			enabled = onPreviousChapter != null,
+		) { Text("\u2039 Previous") }
+		OutlinedButton(
+			onClick = { onNextChapter?.invoke() },
+			enabled = onNextChapter != null,
+		) { Text("Next \u203A") }
+
 		Spacer(Modifier.width(16.dp))
 
 		// Width rather than zoom on purpose: narrowing the strip also shortens how far
@@ -778,7 +816,8 @@ private fun StripFooter(
 	appending: Boolean,
 	error: String?,
 	hasMore: Boolean,
-	onRetry: () -> Unit,
+	/** Retries a failed join, and nudges one that simply has not happened. */
+	onLoadNext: () -> Unit,
 ) {
 	when {
 		error != null -> Column(
@@ -791,7 +830,7 @@ private fun StripFooter(
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
-			TextButton(onClick = onRetry) { Text("Try again") }
+			TextButton(onClick = onLoadNext) { Text("Try again") }
 		}
 
 		appending -> Box(
@@ -808,5 +847,23 @@ private fun StripFooter(
 			modifier = Modifier.fillMaxWidth().padding(24.dp),
 			textAlign = TextAlign.Center,
 		)
+
+		// There is a next chapter and it has not arrived. This branch used to draw
+		// nothing at all, which is the whole of the bug report: the strip is meant to run
+		// into the following chapter by itself, and when it does not the reader is left
+		// at a blank end with no indication that anything was supposed to happen and
+		// nothing to press. Whatever stopped the automatic join, this is a way through.
+		else -> Column(
+			modifier = Modifier.fillMaxWidth().padding(24.dp),
+			horizontalAlignment = Alignment.CenterHorizontally,
+			verticalArrangement = Arrangement.spacedBy(8.dp),
+		) {
+			Text(
+				text = "End of this chapter.",
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			TextButton(onClick = onLoadNext) { Text("Load the next chapter") }
+		}
 	}
 }

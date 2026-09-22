@@ -323,6 +323,7 @@ class AppState(val paths: AppPaths = defaultAppPaths()) {
 			var previousUserAgent = settings.data.value.userAgent
 			settings.data.collect { value ->
 				images.maxEntries = value.imageCacheEntries
+				value.imageCacheMegabytes?.let { images.maxBytes = it.toLong() * 1024 * 1024 }
 				if (value.userAgent != previousUserAgent) {
 					previousUserAgent = value.userAgent
 					sources.reset()
