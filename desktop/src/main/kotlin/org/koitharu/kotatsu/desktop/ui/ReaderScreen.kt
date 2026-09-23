@@ -365,6 +365,7 @@ fun ReaderScreen(
 				pages = strip,
 				zoom = zoom,
 				widthPercent = settings.webtoonWidthPercent,
+				pageAttempts = settings.pageAttempts,
 				listState = listState,
 				footer = {
 					// Only ever visible at the true end of what is loaded. Mid-strip
@@ -539,6 +540,7 @@ internal fun WebtoonStrip(
 	zoom: ZoomState,
 	widthPercent: Int,
 	listState: LazyListState,
+	pageAttempts: Int = DEFAULT_PAGE_ATTEMPTS,
 	footer: @Composable () -> Unit,
 ) {
 	// How many pages may be fetched and decoded at once.
@@ -610,6 +612,7 @@ internal fun WebtoonStrip(
 					// height until it knows the page's own.
 					placeholderHeight = placeholder,
 					permits = permits,
+					pageAttempts = pageAttempts,
 					modifier = Modifier.fillMaxWidth(),
 				)
 			}
@@ -627,6 +630,13 @@ private fun PageImage(
 	placeholderHeight: Dp,
 	/** Bounds how many pages decode at once. See the comment where it is created. */
 	permits: Semaphore,
+	/**
+	 * From settings, rather than a constant beside it.
+	 *
+	 * The setting has always been presented as "Retries per page image" and has never
+	 * been read by anything; the reader used its own number and the downloader used none.
+	 */
+	pageAttempts: Int,
 	modifier: Modifier = Modifier,
 ) {
 	var bitmap: ImageBitmap? by remember(page.id) { mutableStateOf(null) }
@@ -639,7 +649,7 @@ private fun PageImage(
 		failed = false
 		reason = null
 		bitmap = null
-		for (attempt in 1..PAGE_ATTEMPTS) {
+		for (attempt in 1..pageAttempts) {
 			if (attempt > 1) delay(PAGE_RETRY_DELAY_MS * (attempt - 1))
 			// Held across the fetch and the decode, because the decode is the expensive
 			// half and releasing before it would let every page allocate at once again.
@@ -697,8 +707,12 @@ private fun FindAlternativeButton(onFindAlternative: (() -> Unit)?) {
 	}
 }
 
-/** How many times to re-resolve and refetch a page before giving up on it. */
-private const val PAGE_ATTEMPTS = 4
+/**
+ * Fallback when nothing supplies the setting, which is only the tests.
+ *
+ * Matches SettingsData.pageAttempts so a test and the app agree by default.
+ */
+internal const val DEFAULT_PAGE_ATTEMPTS = 3
 
 /** How long the reader must stay on a page before that position is saved. */
 private const val PROGRESS_SETTLE_MS = 600L

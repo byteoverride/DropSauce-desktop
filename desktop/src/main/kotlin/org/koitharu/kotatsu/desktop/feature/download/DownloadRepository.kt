@@ -218,6 +218,9 @@ class DownloadRepository internal constructor(
 					storage = storage,
 					pageSource = pageSource,
 					scope = scope,
+					// The "Retries per page image" setting, which until now was shown,
+					// stored, backed up and read by nothing at all.
+					attempts = { context.settings.data.value.pageAttempts },
 				),
 			)
 		}

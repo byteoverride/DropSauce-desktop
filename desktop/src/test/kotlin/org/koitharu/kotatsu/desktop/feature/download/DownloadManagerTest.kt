@@ -57,13 +57,17 @@ class DownloadManagerTest {
 		root.deleteRecursively()
 	}
 
-	private fun manager(pageSource: PageSource, maxConcurrent: Int = 2) = DownloadManager(
-		db = db,
-		storage = storage,
-		pageSource = pageSource,
-		scope = scope,
-		maxConcurrent = maxConcurrent,
-	)
+	private fun manager(pageSource: PageSource, maxConcurrent: Int = 2, attempts: Int = 1) =
+		DownloadManager(
+			db = db,
+			storage = storage,
+			pageSource = pageSource,
+			scope = scope,
+			maxConcurrent = maxConcurrent,
+			// One by default, so the tests that assert a failure do not sit through a
+			// retry ladder for a page that is never going to answer.
+			attempts = { attempts },
+		)
 
 	private fun chapterDir(): Path = storage.chapterDir(TEST_SOURCE.name, manga.id, chapter.id)
 
@@ -89,6 +93,60 @@ class DownloadManagerTest {
 			assertEquals("page $index", FileSystem.SYSTEM.read(path) { readUtf8() })
 		}
 		assertEquals(listOf(0, 1, 2, 3, 4), source.fetched.toList())
+	}
+
+	// The reported bug. One 404 fifty pages in used to fail the chapter and delete
+	// everything already fetched, for a condition DECISIONS.md D20 records as normal:
+	// a page 404s on first touch and succeeds once the node has it.
+	@Test
+	fun `a page that fails once is asked for again and the chapter completes`() = runBlocking {
+		var refusals = 0
+		val source = FakePageSource(
+			chapters = listOf(chapter),
+			pageCount = 4,
+			onFetch = { index ->
+				// The third page refuses twice then works, which is the shape D20
+				// describes rather than a page that is genuinely gone.
+				if (index == 2 && refusals < 2) {
+					refusals++
+					throw java.io.IOException("HTTP 404 for page $index")
+				}
+				bytesFor(index)
+			},
+		)
+		val manager = manager(source, attempts = 3)
+
+		manager.enqueue(manga, listOf(chapter))
+		manager.awaitIdle()
+
+		val row = db.downloadsDao().find(manga.id, chapter.id)
+		assertEquals("gave up on a page that answers on retry: ${row?.error}", DownloadState.DONE, row?.state)
+		assertEquals(4, row?.pagesDone)
+		assertEquals(2, refusals)
+	}
+
+	@Test
+	fun `a page that never answers still fails the chapter, after trying`() = runBlocking {
+		val tries = java.util.concurrent.atomic.AtomicInteger(0)
+		val source = FakePageSource(
+			chapters = listOf(chapter),
+			pageCount = 3,
+			onFetch = { index ->
+				if (index == 1) {
+					tries.incrementAndGet()
+					throw java.io.IOException("HTTP 404 for page $index")
+				}
+				bytesFor(index)
+			},
+		)
+		val manager = manager(source, attempts = 3)
+
+		manager.enqueue(manga, listOf(chapter))
+		manager.awaitIdle()
+
+		assertEquals(DownloadState.FAILED, db.downloadsDao().find(manga.id, chapter.id)?.state)
+		// Tried the configured number of times, rather than once and rather than forever.
+		assertEquals(3, tries.get())
 	}
 
 	@Test

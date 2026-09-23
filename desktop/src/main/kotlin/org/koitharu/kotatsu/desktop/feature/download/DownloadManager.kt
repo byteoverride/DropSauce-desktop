@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +19,7 @@ import kotlinx.coroutines.withContext
 import okio.IOException
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
+import org.koitharu.kotatsu.parsers.model.MangaPage
 import org.koitharu.kotatsu.shared.db.DownloadEntity
 import org.koitharu.kotatsu.shared.db.LibraryDatabase
 import java.util.concurrent.ConcurrentHashMap
@@ -41,6 +43,13 @@ internal class DownloadManager(
 	private val scope: CoroutineScope,
 	private val now: () -> Long = System::currentTimeMillis,
 	maxConcurrent: Int = MAX_CONCURRENT,
+	/**
+	 * How many times to ask for a page before giving the chapter up.
+	 *
+	 * Read per page rather than captured, so changing it in settings applies to a queue
+	 * that is already running.
+	 */
+	private val attempts: () -> Int = { DEFAULT_ATTEMPTS },
 ) {
 
 	private data class Key(val mangaId: Long, val chapterId: Long)
@@ -226,7 +235,7 @@ internal class DownloadManager(
 			if (pages.isEmpty()) throw IOException("The source returned no pages for this chapter")
 			writeProgress(mangaId, chapterId, total = pages.size, done = 0)
 			pages.forEachIndexed { index, page ->
-				val data = pageSource.fetch(manga, page)
+				val data = fetchWithRetries(manga, page)
 				withContext(Dispatchers.IO) { storage.writePage(dir, index, data) }
 				writeProgress(mangaId, chapterId, total = pages.size, done = index + 1)
 			}
@@ -248,6 +257,38 @@ internal class DownloadManager(
 			withContext(Dispatchers.IO) { storage.delete(dir) }
 			finish(mangaId, chapterId, DownloadState.FAILED, error = describe(e))
 		}
+	}
+
+	/**
+	 * Asks for one page, more than once.
+	 *
+	 * A single 404 used to fail the whole chapter and delete everything already fetched,
+	 * which is wrong for a condition this project has written down as normal:
+	 * DECISIONS.md D20 records that a page 404s on first touch and succeeds once the node
+	 * has it, and the reader has retried for exactly that reason since. The downloader
+	 * never learned. Fifty pages in, one transient miss threw the lot away.
+	 *
+	 * Each attempt goes through [PageSource.fetch], which re-resolves the address, so a
+	 * retry can land on a different node rather than asking the same dead one again. That
+	 * is the whole reason retrying works here.
+	 *
+	 * Backs off further than the reader between tries. Nobody is watching a download, so
+	 * there is no reason to hurry a source that has just refused.
+	 */
+	private suspend fun fetchWithRetries(manga: Manga, page: MangaPage): PageBytes {
+		val total = attempts().coerceIn(1, MAX_ATTEMPTS)
+		var last: Exception? = null
+		for (attempt in 1..total) {
+			if (attempt > 1) delay(RETRY_DELAY_MS * (attempt - 1))
+			try {
+				return pageSource.fetch(manga, page)
+			} catch (e: CancellationException) {
+				throw e
+			} catch (e: Exception) {
+				last = e
+			}
+		}
+		throw last ?: IOException("Could not fetch this page")
 	}
 
 	private suspend fun writeProgress(mangaId: Long, chapterId: Long, total: Int, done: Int) {
@@ -273,6 +314,15 @@ internal class DownloadManager(
 		e.message?.takeIf { it.isNotBlank() } ?: e::class.simpleName ?: "Download failed"
 
 	companion object {
+
+		/** Matches SettingsData.pageAttempts, which is what normally supplies it. */
+		const val DEFAULT_ATTEMPTS = 3
+
+		/** However high the setting goes, a genuinely missing page is not worth an hour. */
+		const val MAX_ATTEMPTS = 10
+
+		/** Multiplied by the attempt number, so the gaps widen. */
+		const val RETRY_DELAY_MS = 800L
 
 		/**
 		 * Chapters downloaded at once.

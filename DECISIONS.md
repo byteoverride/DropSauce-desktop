@@ -562,10 +562,11 @@ The same full client that 404s first succeeds later on the same url.
 order-confounded: the full client was simply always first. MangaDex@Home
 nodes 404 a page they have not cached yet and serve it once warm.
 
-**Fix:** `PageImage` retries with a backoff (4 attempts, 400ms times the
-attempt number) instead of hammering immediately. Nothing about the
-client changes, and the separate image client that diagnosis 1 called
-for is not built, because it would have fixed nothing.
+**Fix:** `PageImage` retries with a backoff instead of hammering
+immediately. Nothing about the client changes, and the separate image
+client that diagnosis 1 called for is not built, because it would have
+fixed nothing. The attempt count started as a constant of 4 here; it is
+now the `pageAttempts` setting, shared with the downloader. See D32.
 
 **The lesson worth keeping:** a control that varies one thing but always
 in the same order is not a control. The line that cracked this was
@@ -941,6 +942,41 @@ not been shown to be comfortable on a two core machine, Windows has been
 installed but barely used, and the decode work in the low-memory plan is
 not written. None of those is a reason to slow down; all of them are
 reasons not to call this 1.0.0 yet.
+
+### D32. One retry setting, honoured by the reader and the downloader
+
+D20 established that a MangaDex@Home node 404s a page it has not cached
+and serves it once warm, and the reader has retried for that reason ever
+since. The downloader never learned. `DownloadManager.run` called
+`pageSource.fetch` once per page, so a single transient 404 fifty pages
+in marked the chapter FAILED and deleted every page already written.
+
+Three things were wrong at once and they are fixed together:
+
+- The downloader now retries per page, backing off 800ms times the
+  attempt number. Longer than the reader's gap on purpose: nobody is
+  watching a download, so there is no reason to hurry a source that has
+  just refused. Each attempt re-enters `PageSource.fetch`, which
+  re-resolves the address, so a retry can reach a different node. That
+  is what makes retrying work rather than just waiting.
+- `pageAttempts` was a dead setting. It is shown in Settings as "Retries
+  per page image", stored, backed up and restored, and was read by
+  nothing at all. Both the reader and the downloader read it now.
+- The reader's own hardcoded `PAGE_ATTEMPTS = 4` is gone, replaced by
+  that setting with a default of 3.
+
+Bounded at 10 attempts however high the setting goes, because a page
+that is genuinely missing is not worth an hour of backoff.
+
+Proved by positive control: with `fetchWithRetries` reverted to a single
+`fetch`, the two new tests fail with `expected:<3> but was:<1>` and
+`gave up on a page that answers on retry ... expected:<DONE> but was:
+<FAILED>`.
+
+This is the third dead setting found, after `track` and
+`isVisibleInLibrary`. The pattern is a settings row added with its
+storage and its backup entry and no reader, which nothing catches
+because every part of it except the last one exists.
 
 ### D16. No new dependency is added without appearing in this file first
 
