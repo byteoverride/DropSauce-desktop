@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.desktop.feature.local
 
 import androidx.compose.ui.graphics.ImageBitmap
+import org.koitharu.kotatsu.desktop.image.BytesBoundedCache
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -32,13 +33,19 @@ class LocalImages(
 	private val coverWidth: Int = 400,
 ) {
 
-	private val covers = lru<ImageBitmap>(coverEntries)
+	// Covers are downscaled to coverWidth before caching, so the entry count is already a
+	// fair proxy for memory here; the byte bound is a backstop for an unusually tall one.
+	private val covers = BytesBoundedCache(maxBytes = COVER_BUDGET, maxEntries = coverEntries)
 
 	/**
-	 * Full-size pages. Small on purpose: these are whole manga pages, and the reader only
-	 * ever shows one plus whatever it is scrolling past.
+	 * Full-size pages, bounded by bytes rather than by count.
+	 *
+	 * Eight entries was the whole limit, and eight local webtoon pages is 344 MB. That is
+	 * the same defect `ImageCache` had: a count says nothing about memory when one entry
+	 * can be ten times another. The reader only shows one page plus whatever it is
+	 * scrolling past, so the count stays as a secondary cap.
 	 */
-	private val pages = lru<ImageBitmap>(pageEntries)
+	private val pages = BytesBoundedCache(maxBytes = PAGE_BUDGET, maxEntries = pageEntries)
 
 	/** Containers whose cover could not be decoded, so the grid stops retrying them. */
 	private val deadCovers = Collections.synchronizedSet(HashSet<String>())
@@ -46,7 +53,7 @@ class LocalImages(
 	/** The thumbnail for an imported comic, or null when it cannot be decoded. */
 	suspend fun cover(container: String, entry: String?): ImageBitmap? {
 		if (entry == null || container in deadCovers) return null
-		covers[container]?.let { return it }
+		covers.get(container)?.let { return it }
 		return withContext(Dispatchers.IO) {
 			val bytes = readOrNull(LocalPageRef(container, entry))
 			val bitmap = bytes?.let { decode(it, coverWidth) }
@@ -56,7 +63,7 @@ class LocalImages(
 				// scrolling the grid reopen every broken file on every frame.
 				deadCovers += container
 			} else {
-				covers[container] = bitmap
+				covers.put(container, bitmap)
 			}
 			bitmap
 		}
@@ -65,11 +72,11 @@ class LocalImages(
 	/** A full-size page, addressed by the url carried on a local `MangaPage`. */
 	suspend fun page(url: String): ImageBitmap? {
 		val ref = LocalPageRef.decode(url) ?: return null
-		pages[url]?.let { return it }
+		pages.get(url)?.let { return it }
 		return withContext(Dispatchers.IO) {
 			val bitmap = readOrNull(ref)?.let { decode(it, targetWidth = 0) }
 			if (bitmap != null) {
-				pages[url] = bitmap
+				pages.put(url, bitmap)
 			}
 			bitmap
 		}
@@ -79,9 +86,7 @@ class LocalImages(
 	fun forget(container: String) {
 		covers.remove(container)
 		deadCovers.remove(container)
-		synchronized(pages) {
-			pages.keys.removeAll { LocalPageRef.decode(it)?.container == container }
-		}
+		pages.removeIf { LocalPageRef.decode(it)?.container == container }
 	}
 
 	private fun readOrNull(ref: LocalPageRef): ByteArray? = try {
@@ -134,10 +139,17 @@ class LocalImages(
 		return if (ImageIO.write(scaled, "png", out)) out.toByteArray() else null
 	}
 
-	private fun <V> lru(maxEntries: Int): MutableMap<String, V> = Collections.synchronizedMap(
-		object : LinkedHashMap<String, V>(32, 0.75f, true) {
-			override fun removeEldestEntry(eldest: Map.Entry<String, V>): Boolean =
-				size > maxEntries.coerceAtLeast(1)
-		},
-	)
+	private companion object {
+
+		/**
+		 * Budgets for locally imported comics, fixed rather than scaled to the heap.
+		 *
+		 * A quarter of the heap is already spoken for by [ImageCache], which holds remote
+		 * covers and reader pages. These are a second cache over the same memory, so they
+		 * take a modest fixed share instead of another proportional bite.
+		 */
+		const val COVER_BUDGET = 64L * 1024 * 1024
+
+		const val PAGE_BUDGET = 96L * 1024 * 1024
+	}
 }
