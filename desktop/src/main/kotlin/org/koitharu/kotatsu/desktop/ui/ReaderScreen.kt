@@ -68,6 +68,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.unit.Dp
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.delay
 import org.koitharu.kotatsu.core.util.ext.DebugFlags
 import org.koitharu.kotatsu.core.util.ext.printStackTraceDebug
@@ -529,7 +533,7 @@ private fun Modifier.pinchAndPan(zoom: ZoomState, key: Any?): Modifier =
 
 /** Continuous vertical strip. Pages are decoded whole; see D10 on tiling. */
 @Composable
-private fun WebtoonStrip(
+internal fun WebtoonStrip(
 	pageSource: ReaderPageSource,
 	pages: List<StripPage>,
 	zoom: ZoomState,
@@ -537,7 +541,21 @@ private fun WebtoonStrip(
 	listState: LazyListState,
 	footer: @Composable () -> Unit,
 ) {
-	Box(
+	// How many pages may be fetched and decoded at once.
+	//
+	// Decoding is not the cheap lazy thing it looks like: ImageCache turns the encoded
+	// bytes into a ComposeImageBitmap, which allocates the whole ARGB buffer and
+	// rasterises into it there and then. A long page is 43 MB and 131 ms. Without a
+	// ceiling, every page the list composes starts one of those at the same moment, and
+	// on a small machine the native allocation fails with no Java stack trace to show
+	// for it.
+	//
+	// Sized from the machine because that is the resource being rationed, and kept at
+	// two on anything normal: one being looked at, one arriving.
+	val permits = remember {
+		Semaphore(Runtime.getRuntime().availableProcessors().minus(1).coerceIn(1, 2))
+	}
+	BoxWithConstraints(
 		modifier = Modifier
 			.fillMaxSize()
 			.clipToBounds()
@@ -551,6 +569,9 @@ private fun WebtoonStrip(
 				}
 			},
 	) {
+		// One screen, so an unloaded page occupies the space it will need rather than
+		// pretending the chapter is a few hundred pixels long.
+		val placeholder = maxHeight
 		LazyColumn(
 			state = listState,
 			horizontalAlignment = Alignment.CenterHorizontally,
@@ -579,6 +600,16 @@ private fun WebtoonStrip(
 					page = pages[i].page,
 					pageSource = pageSource,
 					contentScale = ContentScale.FillWidth,
+					// A page that has not arrived stands as tall as the window.
+					//
+					// It used to reserve whatever the spinner needed, about 36dp, because
+					// LoadingBox fills its constraints and a LazyColumn item has no
+					// height constraint to fill. Fifteen pages then fitted in one screen
+					// and all fifteen began loading at once. Android does the same thing
+					// the other way round: WebtoonImageView falls back to the parent's
+					// height until it knows the page's own.
+					placeholderHeight = placeholder,
+					permits = permits,
 					modifier = Modifier.fillMaxWidth(),
 				)
 			}
@@ -592,6 +623,10 @@ private fun PageImage(
 	page: MangaPage,
 	pageSource: ReaderPageSource,
 	contentScale: ContentScale,
+	/** What an unloaded page stands in at, so the list does not compose the whole chapter. */
+	placeholderHeight: Dp,
+	/** Bounds how many pages decode at once. See the comment where it is created. */
+	permits: Semaphore,
 	modifier: Modifier = Modifier,
 ) {
 	var bitmap: ImageBitmap? by remember(page.id) { mutableStateOf(null) }
@@ -606,7 +641,9 @@ private fun PageImage(
 		bitmap = null
 		for (attempt in 1..PAGE_ATTEMPTS) {
 			if (attempt > 1) delay(PAGE_RETRY_DELAY_MS * (attempt - 1))
-			val loaded = pageSource.image(page, attempt)
+			// Held across the fetch and the decode, because the decode is the expensive
+			// half and releasing before it would let every page allocate at once again.
+			val loaded = permits.withPermit { pageSource.image(page, attempt) }
 			if (loaded != null) {
 				bitmap = loaded
 				return@LaunchedEffect
@@ -625,7 +662,10 @@ private fun PageImage(
 			modifier = modifier,
 		)
 
-		failed -> Box(modifier = modifier, contentAlignment = Alignment.Center) {
+		failed -> Box(
+			modifier = modifier.height(placeholderHeight),
+			contentAlignment = Alignment.Center,
+		) {
 			Column(
 				horizontalAlignment = Alignment.CenterHorizontally,
 				verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -642,7 +682,9 @@ private fun PageImage(
 			}
 		}
 
-		else -> LoadingBox(modifier)
+		// Reserves a screen rather than the spinner's 36dp. This is the line that stops
+		// the list composing fifteen pages at once.
+		else -> LoadingBox(modifier.height(placeholderHeight))
 	}
 }
 
@@ -786,7 +828,7 @@ private data class StripDemand(
  * reader's current chapter is whichever one the visible page belongs to, not the one
  * the screen was opened on.
  */
-private data class StripPage(
+internal data class StripPage(
 	val chapterIndex: Int,
 	val chapter: MangaChapter,
 	val page: MangaPage,

@@ -1,5 +1,6 @@
 package org.koitharu.kotatsu.desktop.image
 
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import org.junit.Assume.assumeTrue
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
@@ -30,17 +31,33 @@ class DecodeCostDiagnostic {
 		for ((w, h) in listOf(800 to 5000, 900 to 12000)) {
 			val jpeg = encode(w, h, "jpg")
 			println("PAGE ${w}x$h  encoded ${jpeg.size / 1024} KB")
-			println("  full decode:      %s".format(report(w, h) { decodeFull(jpeg) }))
+			println("  makeFromEncoded:  %s".format(report(w, h) { decodeLazyOnly(jpeg) }))
+			println("  what the app does:%s".format(report(w, h) { decodeFull(jpeg) }))
 			for (factor in listOf(2, 3, 4)) {
 				println("  subsample 1/$factor:    %s".format(report(w / factor, h / factor) { decodeSub(jpeg, factor) }))
 			}
 		}
 	}
 
-	/** Skia's path, which is what the app does today. */
-	private fun decodeFull(bytes: ByteArray): Pair<Int, Int> {
+	/**
+	 * `makeFromEncoded` alone. NOT what the app does, kept to show the difference.
+	 */
+	private fun decodeLazyOnly(bytes: ByteArray): Pair<Int, Int> {
 		val image = org.jetbrains.skia.Image.makeFromEncoded(bytes)
 		return image.width to image.height
+	}
+
+	/**
+	 * What `ImageCache.load` actually runs.
+	 *
+	 * The earlier version of this diagnostic stopped at `makeFromEncoded` and reported
+	 * 2ms, which was true and measured code the app does not run. `toComposeImageBitmap`
+	 * allocates the full ARGB buffer and rasterises into it there and then, so the cost
+	 * is paid here and not on the render thread.
+	 */
+	private fun decodeFull(bytes: ByteArray): Pair<Int, Int> {
+		val bitmap = org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap()
+		return bitmap.width to bitmap.height
 	}
 
 	/**
