@@ -101,6 +101,14 @@ compose.desktop {
 			// match the machine it is running on: packageMsi is SKIPPED on Linux and
 			// packageDeb is SKIPPED on Windows. Each CI runner calls its own.
 			targetFormats(TargetFormat.Deb, TargetFormat.Msi)
+			// jlink ships only the modules asked for, and the default set does not
+			// include this one. MemoryGuard needs it to ask the operating system how
+			// much memory is left: Linux is served by /proc/meminfo and needs nothing,
+			// but on Windows the bean is the only way to find out, and without the
+			// module the class is simply absent, the probe returns null, and the guard
+			// passes everything. That would leave the check dead on the one platform
+			// whose crash reports prompted it.
+			modules("jdk.management")
 			// The display name, which is what a launcher shows. The deb package name
 			// must stay lowercase, so linux.packageName overrides it below.
 			packageName = "DropSauce"

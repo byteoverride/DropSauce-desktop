@@ -60,8 +60,10 @@ class RemotePageSource(
 		}
 		unresolvable -= page.id
 		resolved[page.id] = url
-		// Forget past failures for this url: a retry here is deliberate, and the cache's
-		// own attempt counter would otherwise refuse the very retry that fixes D20.
+		// Forget past *transient* failures for this url: a retry here is deliberate, and
+		// the cache's own attempt counter would otherwise refuse the very retry that fixes
+		// D20. A format Skia cannot decode survives the call, so an AVIF page is not
+		// refetched and re-decoded on every composition.
 		state.images.forget(url)
 		return state.images.load(url, state.sources.session(source).client)
 	}

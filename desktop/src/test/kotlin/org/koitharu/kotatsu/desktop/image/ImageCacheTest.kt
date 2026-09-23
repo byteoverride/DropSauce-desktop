@@ -173,6 +173,85 @@ class ImageCacheTest {
 		assertTrue(cache.heldCount() < 6, "lowering the budget kept ${cache.heldCount()} images")
 	}
 
+	// The reported bug, at the level the reader hits it. ReaderPageSource calls forget()
+	// before every load so a deliberate D20 retry is not refused by the attempt counter.
+	// That also wiped the permanent record for a format Skia cannot decode, so an AVIF
+	// page was refetched and re-decoded on every composition for the whole session.
+	@Test
+	fun `forget clears a transient failure but not an unsupported format`(): Unit = runBlocking {
+		val cache = ImageCache()
+		repeat(4) { responses += 200 to "<html>not an image</html>".toByteArray() }
+		assertNull(cache.load(url, client))
+		assertTrue(cache.isExhausted(url))
+
+		// What the reader does before each attempt.
+		cache.forget(url)
+
+		assertTrue(cache.isExhausted(url), "forget() revived a format that cannot be decoded")
+		assertEquals("this image format is not supported", cache.failureReason(url))
+		assertNull(cache.load(url, client))
+		assertEquals(1, hits.get(), "the source was asked again for a page that can never decode")
+	}
+
+	@Test
+	fun `forget does clear a transient failure, which is what it is for`(): Unit = runBlocking {
+		val cache = ImageCache()
+		repeat(3) {
+			responses += 503 to ByteArray(0)
+			assertNull(cache.load(url, client))
+		}
+		assertTrue(cache.isExhausted(url), "three misses should pause further requests")
+
+		cache.forget(url)
+
+		assertNull(cache.failureReason(url), "a transport miss must not outlive a re-resolve")
+		responses += 200 to onePixelPng()
+		assertNotNull(cache.load(url, client))
+	}
+
+	// Without this the same condition is a failed native allocation, which is not an
+	// exception and takes the process with it.
+	@Test
+	fun `a decode with no room for it is refused and said so`(): Unit = runBlocking {
+		responses += 200 to png(1200, 1200)
+		val cache = ImageCache(memory = MemoryGuard(freeBytes = { 8L * 1024 * 1024 }))
+
+		assertNull(cache.load(url, client))
+		assertEquals("not enough free memory to decode this image", cache.failureReason(url))
+		// Transient, so the reader's retry ladder gets to try again once the collector
+		// has run, rather than the page being written off for the session.
+		assertTrue(!cache.isExhausted(url), "a short moment must not blacklist the page")
+	}
+
+	// The positive control for the test above: the same image, the same code path, a
+	// guard that is not starved. Without this, "refused" would pass just as well if the
+	// image were simply undecodable.
+	@Test
+	fun `the same decode succeeds when there is room`(): Unit = runBlocking {
+		responses += 200 to png(1200, 1200)
+		val cache = ImageCache(memory = MemoryGuard(freeBytes = { 4_000L * 1024 * 1024 }))
+
+		assertNotNull(cache.load(url, client))
+		assertNull(cache.failureReason(url))
+	}
+
+	// Under real pressure the cache is the biggest thing the app can give back.
+	@Test
+	fun `a refused decode releases what the cache was holding`(): Unit = runBlocking {
+		var free = 4_000L * 1024 * 1024
+		val cache = ImageCache(memory = MemoryGuard(freeBytes = { free }))
+		responses += 200 to png(600, 600)
+		assertNotNull(cache.load(url, client))
+		assertTrue(cache.heldBytes() > 0)
+
+		free = 8L * 1024 * 1024
+		responses += 200 to png(1200, 1200)
+		assertNull(cache.load("$url?second", client))
+
+		assertEquals(0L, cache.heldBytes(), "held on to pixels while refusing to allocate more")
+		assertEquals(0, cache.heldCount())
+	}
+
 	/** A real PNG of the given size, so the decoded cost is the one being measured. */
 	private fun png(width: Int, height: Int): ByteArray {
 		val image = java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB)

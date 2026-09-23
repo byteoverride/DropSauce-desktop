@@ -2,6 +2,7 @@ package org.koitharu.kotatsu.desktop.feature.local
 
 import androidx.compose.ui.graphics.ImageBitmap
 import org.koitharu.kotatsu.desktop.image.BytesBoundedCache
+import org.koitharu.kotatsu.desktop.image.MemoryGuard
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,6 +32,12 @@ class LocalImages(
 	coverEntries: Int = 200,
 	pageEntries: Int = 8,
 	private val coverWidth: Int = 400,
+	/**
+	 * The same check `ImageCache` makes. A page out of a local archive is decoded by the
+	 * same Skia call and is exactly as able to be 43 MB, so leaving it out here would
+	 * have fixed half of a problem.
+	 */
+	private val memory: MemoryGuard = MemoryGuard(),
 ) {
 
 	// Covers are downscaled to coverWidth before caching, so the entry count is already a
@@ -105,6 +112,12 @@ class LocalImages(
 	 */
 	private fun decode(bytes: ByteArray, targetWidth: Int): ImageBitmap? {
 		val encoded = if (targetWidth > 0) shrink(bytes, targetWidth) ?: bytes else bytes
+		val needed = MemoryGuard.decodedBytesOrNull(encoded)
+		if (needed != null && !memory.canDecode(needed)) {
+			// Returning null shows the page as unavailable, which is recoverable. The
+			// alternative is a native allocation failure, which is not.
+			return null
+		}
 		return try {
 			Image.makeFromEncoded(encoded).toComposeImageBitmap()
 		} catch (e: Exception) {

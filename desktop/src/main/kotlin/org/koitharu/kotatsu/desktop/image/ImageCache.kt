@@ -38,6 +38,12 @@ class ImageCache(
 	 * shape `TrackerRepository` and `openLibraryDatabase` already use.
 	 */
 	private val now: () -> Long = System::currentTimeMillis,
+	/**
+	 * Asked before every decode, so that running out of memory is a message rather than
+	 * a vanished process. Injected because a test cannot arrange for a machine to be
+	 * nearly full.
+	 */
+	private val memory: MemoryGuard = MemoryGuard(),
 ) {
 
 	/**
@@ -101,6 +107,14 @@ class ImageCache(
 		}
 	}
 
+	/** Releases every held bitmap, for the moment the machine has no room left. */
+	private fun dropAll() {
+		synchronized(lock) {
+			entries.clear()
+			bytesHeld = 0L
+		}
+	}
+
 	/** What the cache is holding, for a diagnostic that would otherwise be guesswork. */
 	fun heldBytes(): Long = synchronized(lock) { bytesHeld }
 
@@ -152,9 +166,19 @@ class ImageCache(
 	/** Why [url] last failed, for a caller that would rather say so than show a blank. */
 	fun failureReason(url: String): String? = failures[url]?.reason
 
-	/** Forgets a url's failures, so a freshly re-resolved address starts clean. */
+	/**
+	 * Forgets a url's *transient* failures, so a freshly re-resolved address starts clean.
+	 *
+	 * A permanent failure survives this on purpose. The reader calls it before every load
+	 * so that the deliberate D20 retry is not refused by the attempt counter, and for two
+	 * releases it also wiped the record for formats Skia cannot decode. The effect was
+	 * that an AVIF page was refetched and re-decoded on every composition, for the life of
+	 * the session, on exactly the machines least able to afford it. Covers never hit this
+	 * because `RemoteImage` calls [load] directly, so the two paths quietly disagreed
+	 * about whether "unsupported format" meant anything.
+	 */
 	fun forget(url: String) {
-		failures.remove(url)
+		failures.computeIfPresent(url) { _, failure -> if (failure.permanent) failure else null }
 	}
 
 	private fun record(url: String, reason: String, permanent: Boolean) {
@@ -188,6 +212,18 @@ class ImageCache(
 			}
 			if (bytes == null || bytes.isEmpty()) {
 				record(url, "the source sent an empty response", permanent = false)
+				return@withContext null
+			}
+			val needed = MemoryGuard.decodedBytesOrNull(bytes)
+			if (needed != null && !memory.canDecode(needed)) {
+				// Our own cached pixels are the largest thing we can give back, and the
+				// image being asked for matters more than the ones behind it. Skia frees
+				// them natively only once the Java peers are collected, so the room does
+				// not appear in time for this attempt; recording the failure as transient
+				// hands recovery to the retry ladder, which backs off far enough for the
+				// collector to have run by the next try.
+				dropAll()
+				record(url, "not enough free memory to decode this image", permanent = false)
 				return@withContext null
 			}
 			val bitmap = try {

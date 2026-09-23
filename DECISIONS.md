@@ -398,8 +398,15 @@ above; this is what stands.**
 
 v1 ships **webtoon** only (D22).
 Zoom and pan is a hand-written `Modifier.graphicsLayer` + `pointerInput`
-transform. Full-image decode is Skia via Skiko. Region decode is
-`javax.imageio.ImageReadParam.setSourceRegion`.
+transform. Full-image decode is Skia via Skiko.
+
+**The region-decode mechanism named below is withdrawn. D33 supersedes
+it.** `javax.imageio.ImageReadParam.setSourceRegion` works and was
+measured honestly, but ImageIO has no WebP reader, and WebP is what the
+dominant source in a real library actually serves. The measurement was
+real and the conclusion drawn from it was too narrow: it proved ImageIO
+can region-decode the formats ImageIO can read, which is not the same as
+the formats manga sources send. Read D33 before touching this.
 
 **What changed and why.** The original decision dropped tiled decoding on
 the premise that no JVM region decoder exists. That premise was false.
@@ -977,6 +984,120 @@ This is the third dead setting found, after `track` and
 `isVisibleInLibrary`. The pattern is a settings row added with its
 storage and its backup entry and no reader, which nothing catches
 because every part of it except the last one exists.
+
+### D33. What Skia will and will not do about decode size, measured
+
+D10 planned region decode through `javax.imageio`. That is dead for most
+of this library: a format histogram across the catalogue found MANGAJINX,
+224 of 359 titles in the real library used for testing, serving **WebP**,
+for which the JDK ships no ImageIO reader at all, and ATSUMARU serving
+**AVIF**, which the desktop build cannot decode by any route.
+
+So the question became what skiko itself can do. `javap` over skiko
+0.150.1 says: there is **no** sample-size or region-decode entry point.
+`Codec.readPixels(Bitmap, int, int)` takes animation frame indices, not
+scale factors. No `getScaledDimensions`, no `SkAndroidCodec`.
+
+What does work is undocumented in the Kotlin API and was found by
+experiment: allocate the destination `Bitmap` yourself at the size you
+want and Skia either honours it or throws `IllegalArgumentException:
+Invalid scale`. Measured on a 900x12000 page, JDK 21, with a positive
+control at 1/1 to prove the harness:
+
+| ratio | JPEG | WebP | PNG |
+|---|---|---|---|
+| 1/1 | 43MB, 86ms | 43MB, 236ms | 43MB, 18ms |
+| 1/2 | 10MB, 58ms | 10MB, 247ms | refused |
+| 1/4 | 2MB, 44ms | 2MB, 233ms | refused |
+| 1/8 | 0.7MB, 35ms | 0.7MB, 225ms | refused |
+
+Three separate conclusions, and they are not the same conclusion:
+
+- **JPEG** gets a true subsampled decode. Time falls with the ratio,
+  which is only possible if the full image is never produced.
+- **WebP** returns the smaller bitmap but the time is **flat across every
+  ratio**. Flat time means libwebp decodes the whole thing and scales it
+  down internally. So WebP gets the retained-memory win and neither the
+  transient-peak win nor the CPU win. This is the dominant format.
+- **PNG** refuses scaled decode outright and needs decode-then-shrink.
+
+Ratios must be exact: request `ceil(w/n)` and not `w/n`, or 1/8 of 900 is
+112 where Skia computed 113 and the call throws.
+
+Two consequences worth stating plainly. Phase 3 is still worth doing,
+because the retained ceiling falls roughly twentyfold for all three
+formats and that is what the caches and the on-screen composables hold.
+But it is **not** the fix for a single oversized page on the dominant
+format, and the earlier plan assumed a uniform win that the measurement
+does not support.
+
+Separately: WebP costs 236ms against JPEG's 86ms at full size, a flat 3x
+CPU penalty on the most common source, independent of memory. Part of
+"slow and hard to load" is that, not paging pressure, and no amount of
+memory work will touch it.
+
+### D34. A decode is priced before it is paid for
+
+The Android app asks `Context.ensureRamAtLeast(size * 2)` before every
+decode (`PageLoader` calls it twice) and throws a catchable
+`IllegalStateException` when the answer is no. The desktop port carried
+the decoder across and left the check behind. The same condition
+therefore arrived as a failed native allocation, which is not a Java
+exception, cannot be caught, and on a packaged Windows app with no
+console takes the process away without a word. That is a good candidate
+for the crashes reported on the Windows VM.
+
+`MemoryGuard` restores the check. It prices a decode from the header
+alone, because `Codec` parses metadata without allocating pixels, then
+refuses if twice that plus 128 MB of headroom does not fit in free
+memory. A refusal is recorded as **transient**, so the existing retry
+ladder is the recovery path rather than the page being written off.
+On refusal the cache drops everything it holds, since our own pixels are
+the largest thing the app can give back.
+
+Free memory is `MemAvailable` from `/proc/meminfo` on Linux, not the JDK
+bean, which reports `MemFree` and excludes reclaimable page cache;
+reading a few large files is enough to drive `MemFree` near zero on an
+idle machine and a guard built on it would refuse pages to a reader with
+gigabytes spare. Windows draws no such distinction and the bean is
+correct there.
+
+**The part that nearly shipped broken.** jlink ships only the modules
+asked for, and the runtime image contained java.base, java.datatransfer,
+java.desktop, java.logging, java.prefs, java.xml and jdk.crypto.ec.
+No `java.management`. Reproducing that exact module set with
+`--limit-modules` gives `NoClassDefFoundError:
+java/lang/management/ManagementFactory`, so on Windows the probe would
+have returned null, the guard would have passed everything, and the
+check would have been dead on the only platform it was written for.
+`modules("jdk.management")` is now declared. Any future use of
+`ManagementFactory` depends on it staying there.
+
+A guard that cannot measure returns true. It must never be the thing that
+stops the reader working.
+
+### D35. `forget` cleared failures it had no business clearing
+
+`ReaderPageSource.image` calls `ImageCache.forget(url)` before every
+load, so that the deliberate D20 retry is not refused by the cache's own
+attempt counter. `forget` removed the whole failure record, including the
+`permanent` flag set for a payload Skia has no decoder for.
+
+The effect: an AVIF page was refetched over the network and re-decoded on
+every composition, for the whole session, on exactly the machines least
+able to afford either. The exhaustion cap was checked on the first line
+of `load` one line after the reader had just erased it, so for reader
+pages it was off entirely. Covers behaved correctly, because `RemoteImage`
+calls `load` directly with no `forget`, so the two paths had silently
+disagreed for two releases about whether "unsupported format" meant
+anything.
+
+`forget` now keeps a permanent failure and clears only transient ones.
+
+The general shape, which is the part worth keeping: a cache that
+distinguishes kinds of failure needs every mutator to respect the
+distinction, and a "clear the state" helper written for one caller's
+purpose will quietly serve every other purpose too.
 
 ### D16. No new dependency is added without appearing in this file first
 
