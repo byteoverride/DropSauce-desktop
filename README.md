@@ -126,7 +126,8 @@ front end over the same shared logic, not a rewrite, and the Android app still b
 untouched.
 
 Linux is what it is developed and tested on. Windows installers are built by CI and have
-**not been run on a real machine yet**, so treat those as early.
+been run on real hardware and in a low-spec virtual machine, but they get a fraction of
+the testing the Linux build does, so treat them as the newer of the two.
 
 <p align="center">
   <img src="assets/desktop_library-preview.webp" alt="DropSauce desktop library screen, showing categories, the chapter length filter and the cover grid" width="90%" />
@@ -170,6 +171,70 @@ deliberately overlaps the others because emptying a shelf at a threshold is a di
 question from browsing one. Once filtered, the whole set can be moved into another
 category in one step.
 
+### What it needs
+
+Measured on the shipping build rather than estimated. The app bundles its own Java 21, so
+there is nothing to install alongside it.
+
+|  | Runs | Comfortable |
+|---|---|---|
+| RAM | 2 GB | 4 GB or more |
+| CPU | 2 cores | 3 or more |
+| Disk | 200 MB | plus your downloads |
+| Graphics | anything, software rendering included | any GPU with working OpenGL |
+
+**Disk.** 156 MB installed, from a 70 MB `.deb` or a 76 MB `.msi`. Your library database is
+small, a few MB for hundreds of titles. Downloaded chapters are whatever the pages weigh,
+typically 2 to 6 MB a chapter, wherever you pointed the download directory.
+
+**RAM.** The app sizes its own image cache to the machine: an eighth of what is left after
+the Java heap, capped at 256 MB. You do not configure this.
+
+| Installed RAM | Image cache |
+|---|---|
+| 2 GB | 154 MB |
+| 4 GB and above | 256 MB |
+
+2 GB works and is the floor. Below that the cache drops to a size where the reader
+re-decodes pages it has just shown, which is slow rather than broken. Before decoding
+anything the app checks there is room for it and says so instead of dying, so running
+short is a message on the page and not a vanished window.
+
+**CPU.** Pages are decoded at most two at a time, and how many depends on the core count:
+
+| Cores | Pages decoded at once |
+|---|---|
+| 1 or 2 | 1 |
+| 3 or more | 2 |
+
+So 2 cores is the point where page loading is noticeably serial. It is usable; it is not
+pleasant on a long webtoon strip.
+
+What actually costs the time is the image format your sources serve, not the app. A
+full-size page measured here takes about 86 ms as JPEG and about 236 ms as WebP, and most
+of this catalogue serves WebP. A slow machine on a WebP source is the worst combination,
+and nothing in the reader can change that.
+
+**Graphics.** OpenGL is used where it exists. In a virtual machine without working
+acceleration, force the software renderer with an environment variable:
+
+```bash
+SKIKO_RENDER_API=SOFTWARE dropsauce
+```
+
+```bat
+set SKIKO_RENDER_API=SOFTWARE
+```
+
+It has to be the environment, not the command line. Passing `-Dskiko.renderApi=SOFTWARE`
+as an argument does nothing, because the launcher hands arguments to the application
+rather than to the Java runtime underneath it.
+
+The app writes what it actually chose to `dropsauce.log` beside your library, along with
+the heap size and core count. That is the first thing to look at if it feels slow: a
+`renderApi` of `SOFTWARE_FAST` on a machine you expected to have a GPU explains a great
+deal on its own.
+
 ### Install
 
 Both builds are on the
@@ -188,8 +253,8 @@ in `~/.local/share/dropsauce/`.
 **Windows**, `DropSauce-<version>.msi`, around 76 MB: double click it and choose a folder.
 Uninstall through Apps and Features.
 
-> Windows has not been run on real hardware yet. Your library goes to
-> `%APPDATA%\DropSauce` and the cache to `%LOCALAPPDATA%\DropSauce`, as they should.
+> Your library goes to `%APPDATA%\DropSauce` and the cache to
+> `%LOCALAPPDATA%\DropSauce`, as they should.
 > An install from `desktop-v0.9.10` or earlier wrote to `.local\share` under your user
 > folder instead; that library is still found and used, and nothing is moved.
 
@@ -243,8 +308,8 @@ present on a normal Debian or Ubuntu install. The Android SDK is only needed for
 
 ### Known limits
 
-- Linux x86_64 and Windows x64. No macOS packaging, and the Windows build is untested on
-  real hardware.
+- Linux x86_64 and Windows x64. No macOS packaging, and Windows gets far less testing
+  than Linux.
 - Wayland runs through XWayland, since the app renders into an AWT window.
 - The reader is webtoon mode only. Paged modes are not implemented.
 - Very tall strips decode whole, as tiled decoding is not implemented yet.

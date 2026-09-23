@@ -42,7 +42,16 @@ class CrashLog(private val file: Path) {
 				// This is the line that separates "the machine has no GPU and is drawing
 				// every frame on two cores" from every other reason to be slow.
 				appendLine("renderApi ${renderApi()}")
-				appendLine("override  ${System.getProperty("skiko.renderApi") ?: "(none)"}")
+				// Both, because either one works and reporting only the property said
+				// "(none)" for a run that had in fact been forced to software through the
+				// environment variable. That is the wrong answer to give somebody who is
+				// trying to work out why their machine is slow.
+				appendLine(
+					"override  " + listOfNotNull(
+						System.getProperty("skiko.renderApi")?.let { "-Dskiko.renderApi=$it" },
+						System.getenv("SKIKO_RENDER_API")?.let { "SKIKO_RENDER_API=$it" },
+					).joinToString(", ").ifEmpty { "(none)" },
+				)
 			},
 		)
 		val existing = Thread.getDefaultUncaughtExceptionHandler()
