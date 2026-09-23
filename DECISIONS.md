@@ -748,12 +748,35 @@ which is the exact point at which an update check silently stops working.
 A test asserts both orderings so the trap is visible in the suite.
 
 The repository carries the Android project's tags too, so a release counts
-only if its tag starts `desktop-v` and it carries a `.deb`. Without that
+only if its tag starts `desktop-v` and it carries a package. Without that
 the desktop app would offer an APK.
 
 It does not download or install. A package needs root, and an app that
 fetched and ran an installer would be doing something nobody asked for.
-The screen hands over a link and the dpkg line.
+The screen hands over a link and the install line for the platform it is
+running on.
+
+**Corrected.** This decision used to say a release counts only if it
+carries a `.deb`, and that the screen hands over "the dpkg line". Both
+were literally true of the code and both were bugs the moment Windows
+shipped. `PACKAGE_SUFFIX` was hardcoded to `.deb`, so a Windows reader was
+offered the Linux package behind a Download button, under an instruction
+to run `sudo dpkg -i`. Reported from a real Windows install of 1.0.0.
+
+The fix is `HostPackage`, which decides the suffix and the install wording
+from `os.name` the same way `defaultAppPaths` decides where data lives,
+that being the only other place the app cares what it is running on. It is
+injected rather than read statically, because the Windows path can only be
+tested from Linux if something can pretend to be Windows, and a bug that
+lives on one platform is exactly the one nobody runs the test for.
+
+Two things fell out of fixing it. A release is now kept when it carries a
+package for *any* platform, and `downloadUrl` became nullable: if the
+Windows job fails, that release still appears with its notes and a link to
+the page, rather than Windows readers being told they are up to date. A
+silent "nothing new" is the worst of the three possible answers. And the
+live test now runs both platforms against the real feed, because the
+original only ever exercised the one that worked.
 
 Failures are swallowed on purpose. The check is something the app does on
 its own, so being offline, rate limited or served nonsense must not be

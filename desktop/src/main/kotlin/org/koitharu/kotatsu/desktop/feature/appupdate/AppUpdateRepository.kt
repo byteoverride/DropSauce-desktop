@@ -21,9 +21,16 @@ data class AppRelease(
 	val title: String,
 	/** The release page, for someone who would rather read it on the web. */
 	val url: String,
-	/** Direct link to the `.deb`. */
-	val downloadUrl: String,
-	val downloadSize: Long,
+	/**
+	 * Direct link to the package for *this* platform, or null when the release carries
+	 * one for some other platform but not this one.
+	 *
+	 * Nullable rather than absent, so that a release whose Windows job failed still shows
+	 * up with its notes and a link, instead of Windows readers being told there is no
+	 * update at all. A silent "you are up to date" is the worst of the three answers.
+	 */
+	val downloadUrl: String?,
+	val downloadSize: Long?,
 	val notes: String,
 ) {
 
@@ -47,6 +54,8 @@ class AppUpdateRepository(
 	private val client: OkHttpClient,
 	private val currentVersion: String = AppBuild.version,
 	private val releasesUrl: String = DEFAULT_RELEASES_URL,
+	/** Injected so the Windows behaviour can be tested from Linux, which is where it broke. */
+	private val hostPackage: HostPackage = HostPackage.forHost(),
 ) {
 
 	private val available = MutableStateFlow<AppRelease?>(null)
@@ -121,15 +130,16 @@ class AppUpdateRepository(
 			.asSequence()
 			.filter { !it.draft && it.tagName.startsWith(DESKTOP_TAG_PREFIX) }
 			.mapNotNull { release ->
-				// A release with no package is an announcement, not something to install.
-				val asset = release.assets.firstOrNull { it.name.endsWith(PACKAGE_SUFFIX) }
-					?: return@mapNotNull null
+				// A release with no package at all is an announcement, not something to
+				// install. One that has packages but not ours is still worth showing.
+				if (release.assets.none { HostPackage.isPackage(it.name) }) return@mapNotNull null
+				val asset = release.assets.firstOrNull { it.name.endsWith(hostPackage.suffix) }
 				AppRelease(
 					version = release.tagName.removePrefix(DESKTOP_TAG_PREFIX),
 					title = release.name?.takeIf { it.isNotBlank() } ?: release.tagName,
 					url = release.htmlUrl,
-					downloadUrl = asset.browserDownloadUrl,
-					downloadSize = asset.size,
+					downloadUrl = asset?.browserDownloadUrl,
+					downloadSize = asset?.size,
 					notes = release.body.orEmpty().trim(),
 				)
 			}
@@ -162,8 +172,6 @@ class AppUpdateRepository(
 		 */
 		const val DEFAULT_RELEASES_URL =
 			"https://api.github.com/repos/byteoverride/DropSauce-desktop/releases?page=1&per_page=10"
-
-		private const val PACKAGE_SUFFIX = ".deb"
 
 		private val JSON = Json { ignoreUnknownKeys = true }
 	}

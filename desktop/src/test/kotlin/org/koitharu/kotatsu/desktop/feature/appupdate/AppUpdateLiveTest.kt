@@ -25,14 +25,20 @@ class AppUpdateLiveTest {
 
 	@Test
 	fun `the real feed yields a usable release`() = runBlocking {
-		val releases = AppUpdateRepository(OkHttpClient()).availableReleases()
-		assertTrue(releases.isNotEmpty(), "no desktop release carrying a .deb was found")
-		val newest = releases.first()
-		assertTrue(newest.downloadUrl.endsWith(".deb"), "not a package: ${newest.downloadUrl}")
-		assertTrue(newest.downloadSize > 1_000_000, "suspiciously small: ${newest.downloadSize}")
-		// Sorted newest first, so nothing later may outrank the head.
-		assertTrue(releases.all { it.versionId <= newest.versionId })
-		println("LIVE newest=${newest.version} size=${newest.downloadSize} url=${newest.downloadUrl}")
+		// Both platforms against the real feed, because the bug was that one of them was
+		// never exercised: the check looked for a .deb whatever it was running on.
+		for (host in HostPackage.entries) {
+			val releases = AppUpdateRepository(OkHttpClient(), hostPackage = host).availableReleases()
+			assertTrue(releases.isNotEmpty(), "no desktop release carrying a package was found")
+			val newest = releases.first()
+			val url = newest.downloadUrl
+			assertNotNull(url, "the newest release has no ${host.suffix}")
+			assertTrue(url.endsWith(host.suffix), "$host was given $url")
+			assertTrue((newest.downloadSize ?: 0) > 1_000_000, "suspiciously small: ${newest.downloadSize}")
+			// Sorted newest first, so nothing later may outrank the head.
+			assertTrue(releases.all { it.versionId <= newest.versionId })
+			println("LIVE $host newest=${newest.version} size=${newest.downloadSize} url=$url")
+		}
 	}
 
 	@Test

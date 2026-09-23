@@ -15,7 +15,7 @@ plugins {
  * hand-kept copies would drift, and the failure is silent, so it is declared here and
  * fed to both.
  */
-val appVersion = "1.0.0"
+val appVersion = "1.0.1"
 
 /**
  * Puts [appVersion] on the classpath, so the app can read its own version at runtime.

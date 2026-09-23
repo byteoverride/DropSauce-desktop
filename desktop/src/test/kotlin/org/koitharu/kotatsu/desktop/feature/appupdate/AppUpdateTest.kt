@@ -110,7 +110,7 @@ class AppUpdateTest {
 
 	@Test
 	fun `a release with no package is not an update`() = runBlocking {
-		enqueueJson(release("desktop-v1.0.0", assetName = null))
+		enqueueJson(release("desktop-v1.0.0"))
 		assertNull(repository(current = "0.9.8").fetchUpdate())
 	}
 
@@ -174,10 +174,66 @@ class AppUpdateTest {
 		assertTrue(headers["user-agent"].orEmpty().startsWith("DropSauce-desktop/"))
 	}
 
-	private fun repository(current: String) = AppUpdateRepository(
+	// The reported bug. Every release carries both packages, and Windows was handed the
+	// Linux one because the suffix was hardcoded.
+	@Test
+	fun `windows is offered the msi and linux the deb`() = runBlocking {
+		enqueueJson(release("desktop-v1.0.1", "dropsauce_1.0.1_amd64.deb", "DropSauce-1.0.1.msi"))
+		val onWindows = repository(current = "1.0.0", host = HostPackage.MSI).fetchUpdate()
+		assertEquals("https://example.test/DropSauce-1.0.1.msi", onWindows?.downloadUrl)
+
+		enqueueJson(release("desktop-v1.0.1", "dropsauce_1.0.1_amd64.deb", "DropSauce-1.0.1.msi"))
+		val onLinux = repository(current = "1.0.0", host = HostPackage.DEB).fetchUpdate()
+		assertEquals("https://example.test/dropsauce_1.0.1_amd64.deb", onLinux?.downloadUrl)
+	}
+
+	// Asset order on the release must not decide it. GitHub lists them however it likes.
+	@Test
+	fun `the platform decides, not the order the assets are listed in`() = runBlocking {
+		enqueueJson(release("desktop-v1.0.1", "DropSauce-1.0.1.msi", "dropsauce_1.0.1_amd64.deb"))
+		assertEquals(
+			"https://example.test/dropsauce_1.0.1_amd64.deb",
+			repository(current = "1.0.0", host = HostPackage.DEB).fetchUpdate()?.downloadUrl,
+		)
+	}
+
+	// If the Windows job failed, the release still exists and is still newer. Telling a
+	// Windows reader they are up to date would be the worst of the available answers.
+	@Test
+	fun `a release missing this platform's package is still reported, without a download`() = runBlocking {
+		enqueueJson(release("desktop-v1.0.1", "dropsauce_1.0.1_amd64.deb"))
+		val update = repository(current = "1.0.0", host = HostPackage.MSI).fetchUpdate()
+
+		assertEquals("1.0.1", update?.version)
+		assertNull(update?.downloadUrl, "offered a .deb to Windows")
+		assertNull(update?.downloadSize)
+		assertEquals("https://example.test/desktop-v1.0.1", update?.url)
+	}
+
+	@Test
+	fun `the install hint matches the platform`() {
+		assertEquals(
+			"Install it with: sudo dpkg -i dropsauce_1.0.1_amd64.deb",
+			HostPackage.DEB.installHint("dropsauce_1.0.1_amd64.deb"),
+		)
+		assertEquals("Run DropSauce-1.0.1.msi and follow the installer.", HostPackage.MSI.installHint("DropSauce-1.0.1.msi"))
+	}
+
+	@Test
+	fun `the host is read from the os name`() {
+		assertEquals(HostPackage.MSI, HostPackage.forHost("Windows 11"))
+		assertEquals(HostPackage.MSI, HostPackage.forHost("windows server 2022"))
+		assertEquals(HostPackage.DEB, HostPackage.forHost("Linux"))
+		// No macOS packaging exists, so the deb is the honest answer rather than a crash.
+		assertEquals(HostPackage.DEB, HostPackage.forHost("Mac OS X"))
+		assertEquals(HostPackage.DEB, HostPackage.forHost(""))
+	}
+
+	private fun repository(current: String, host: HostPackage = HostPackage.DEB) = AppUpdateRepository(
 		client = client,
 		currentVersion = current,
 		releasesUrl = "http://127.0.0.1:${server.address.port}/releases",
+		hostPackage = host,
 	)
 
 	private fun enqueue(code: Int, body: String) {
@@ -187,11 +243,9 @@ class AppUpdateTest {
 	private fun enqueueJson(vararg releases: String) =
 		enqueue(200, releases.joinToString(",", "[", "]"))
 
-	private fun release(tag: String, assetName: String? = null, draft: Boolean = false): String {
-		val assets = if (assetName == null) {
-			"[]"
-		} else {
-			"""[{"name":"$assetName","browser_download_url":"https://example.test/$assetName","size":66000000}]"""
+	private fun release(tag: String, vararg assetNames: String, draft: Boolean = false): String {
+		val assets = assetNames.joinToString(",", "[", "]") { name ->
+			"""{"name":"$name","browser_download_url":"https://example.test/$name","size":66000000}"""
 		}
 		return """
 			{"tag_name":"$tag","name":"Desktop $tag","html_url":"https://example.test/$tag",

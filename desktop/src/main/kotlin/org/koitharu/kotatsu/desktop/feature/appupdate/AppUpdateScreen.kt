@@ -94,7 +94,11 @@ fun AppUpdateScreen(repository: AppUpdateRepository) {
 }
 
 @Composable
-private fun UpdateCard(release: AppRelease) {
+private fun UpdateCard(
+	release: AppRelease,
+	/** A parameter so the Windows wording can be rendered and asserted from Linux. */
+	hostPackage: HostPackage = HostPackage.forHost(),
+) {
 	Card(Modifier.fillMaxWidth()) {
 		Column(
 			modifier = Modifier.padding(16.dp),
@@ -102,8 +106,13 @@ private fun UpdateCard(release: AppRelease) {
 		) {
 			Text(release.title, style = MaterialTheme.typography.titleLarge)
 			Text(
-				text = "Version ${release.version}, ${release.downloadSize / 1_000_000} MB, " +
-					"replacing ${AppBuild.version}",
+				text = buildString {
+					append("Version ${release.version}")
+					// Absent when this release has no package for this platform, which is
+					// the one case where there is no size to report.
+					release.downloadSize?.let { append(", ${it / 1_000_000} MB") }
+					append(", replacing ${AppBuild.version}")
+				},
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
@@ -115,12 +124,21 @@ private fun UpdateCard(release: AppRelease) {
 					overflow = TextOverflow.Ellipsis,
 				)
 			}
+			val download = release.downloadUrl
 			Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-				Button(onClick = { browse(release.downloadUrl) }) { Text("Download the package") }
+				if (download != null) {
+					Button(onClick = { browse(download) }) { Text("Download the package") }
+				}
 				OutlinedButton(onClick = { browse(release.url) }) { Text("Release notes") }
 			}
 			Text(
-				text = "Install it with: sudo dpkg -i ${release.downloadUrl.substringAfterLast('/')}",
+				text = if (download != null) {
+					hostPackage.installHint(download.substringAfterLast('/'))
+				} else {
+					// Better than hiding the release. It exists, it is newer, and the page
+					// says what happened to the missing build.
+					"This release has no ${hostPackage.suffix} yet. The release page has the rest."
+				},
 				style = MaterialTheme.typography.labelMedium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
