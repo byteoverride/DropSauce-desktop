@@ -936,19 +936,46 @@ The lesson worth keeping: a type system cannot tell you that a path
 convention is wrong for a platform, and a test suite cannot tell you that
 a dialog never opens. Both passed everything.
 
-### D31. 0.9.x is a demo; 1.0.0 is a claim
+### D31. 0.9.x was a demo; 1.0.0 is a claim, and it has been made
 
-The desktop build stays on 0.9.x while it is something to try rather than
-something to rely on. 1.0.0 is not the next number after 0.9.13, it is a
-statement that the reader works on an ordinary machine without a caveat
-attached, and it gets used when that is true rather than when the minor
-number looks full.
+The desktop build stayed on 0.9.x while it was something to try rather
+than something to rely on. 1.0.0 was never meant to be the next number
+after 0.9.14; it is a statement that the reader works on an ordinary
+machine without a caveat attached, to be used when that is true rather
+than when the minor number looks full.
 
-What is still outstanding against that bar, as of 0.9.13: the reader has
-not been shown to be comfortable on a two core machine, Windows has been
-installed but barely used, and the decode work in the low-memory plan is
-not written. None of those is a reason to slow down; all of them are
-reasons not to call this 1.0.0 yet.
+**Taken at 1.0.0.** Against the three things this decision listed as
+outstanding at 0.9.13:
+
+- *The decode work in the low-memory plan is not written.* **Closed.**
+  The plan turned out to be half wrong and the measurement is what closed
+  it: D37 found reader pages are 720 to 1536 pixels wide against a strip
+  that is usually wider, so decoding them at display size saves 3% at a
+  normal window and nothing above it. Covers were the real cost at 92%
+  waste and they are done. Phase 4, the disk cache, is deliberately not
+  in scope: D33 established it is a network optimisation and not a crash
+  fix.
+- *The reader has not been shown to be comfortable on a two core
+  machine.* **Partly met, and honestly so.** It no longer dies there:
+  every decode is priced before it is paid for (D34) and the budget is
+  sized off the machine rather than the heap (D36). It is still not
+  quick. A WebP page costs about 236 ms against 86 ms for JPEG, two cores
+  allow one decode at a time, and most of this catalogue serves WebP.
+  That is measured, it is in the README, and it is not something the app
+  can fix.
+- *Windows has been installed but barely used.* **Still true.** It is
+  built by CI on every tag, has been installed on real hardware and in a
+  low-spec VM, and gets a fraction of the testing Linux does. The README
+  says exactly that rather than implying parity.
+
+So 1.0.0 goes out with the known limits in the README intact: webtoon
+only, no tiled decode, no AVIF or CBR, and Windows less tested. That is a
+different thing from a caveat on whether it works. A 1.0.0 with limits
+that are written down is a claim that can be checked; a 1.0.0 that
+pretends to have none is the one worth avoiding.
+
+The version is the owner's call and this one was made deliberately, not
+because 0.9.14 looked full.
 
 ### D32. One retry setting, honoured by the reader and the downloader
 
