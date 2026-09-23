@@ -74,9 +74,51 @@ class MemoryGuard(
 		 */
 		fun availableBytes(): Long? = linuxMemAvailable() ?: beanFreeBytes()
 
-		private fun linuxMemAvailable(): Long? = try {
+		/**
+		 * How much memory the machine has at all, or null if it will not say.
+		 *
+		 * Unlike [availableBytes] this does not move, which is what a cache budget needs:
+		 * a budget set from whatever happened to be free at startup would be tiny on a
+		 * machine that was briefly busy and would never recover.
+		 */
+		fun totalBytes(): Long? = linuxMeminfo("MemTotal:") ?: beanTotalBytes()
+
+		/**
+		 * What is left for decoded images once the JVM has taken its share.
+		 *
+		 * The heap is *subtracted* rather than used as a proxy. Sizing the image budget as
+		 * a fraction of the heap, which is what this used to do, gets the relationship
+		 * backwards: the pixels live outside the heap, so raising `-Xmx` raised the native
+		 * budget too and the two added instead of trading off. A larger heap leaves the
+		 * machine with less room for images, not more.
+		 *
+		 * Null when the platform will not report its size, which leaves the caller to fall
+		 * back rather than guess.
+		 */
+		fun spareForImages(
+			physicalBytes: Long? = totalBytes(),
+			heapBytes: Long = Runtime.getRuntime().maxMemory(),
+		): Long? {
+			val physical = physicalBytes ?: return null
+			return (physical - heapBytes - NON_HEAP_OVERHEAD).coerceAtLeast(0L)
+		}
+
+		/**
+		 * Everything the process needs that is neither the heap nor decoded images:
+		 * metaspace, the code cache, thread stacks, Skia's own scratch memory and the
+		 * window itself.
+		 *
+		 * An estimate, and deliberately a generous one, because underestimating it is the
+		 * direction that kills the process. Replacing it with a measurement would mean
+		 * sampling RSS minus heap on each platform at steady state.
+		 */
+		const val NON_HEAP_OVERHEAD = 300L * 1024 * 1024
+
+		private fun linuxMemAvailable(): Long? = linuxMeminfo("MemAvailable:")
+
+		private fun linuxMeminfo(key: String): Long? = try {
 			File("/proc/meminfo").takeIf { it.canRead() }?.useLines { lines ->
-				lines.firstOrNull { it.startsWith("MemAvailable:") }
+				lines.firstOrNull { it.startsWith(key) }
 					?.filter(Char::isDigit)
 					?.toLongOrNull()
 					?.times(1024)
@@ -85,12 +127,16 @@ class MemoryGuard(
 			null
 		}
 
-		private fun beanFreeBytes(): Long? = try {
-			val bean = ManagementFactory.getOperatingSystemMXBean()
-			(bean as? com.sun.management.OperatingSystemMXBean)?.freeMemorySize
+		private fun beanFreeBytes(): Long? = bean()?.freeMemorySize
+
+		private fun beanTotalBytes(): Long? = bean()?.totalMemorySize
+
+		private fun bean(): com.sun.management.OperatingSystemMXBean? = try {
+			ManagementFactory.getOperatingSystemMXBean() as? com.sun.management.OperatingSystemMXBean
 		} catch (e: Throwable) {
 			// jdk.management is an optional module and a trimmed runtime image need not
-			// carry it. Unknown means do not stand in the way.
+			// carry it, so this is a NoClassDefFoundError rather than an exception.
+			// Unknown means do not stand in the way.
 			null
 		}
 	}

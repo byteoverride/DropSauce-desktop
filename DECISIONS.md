@@ -1099,6 +1099,64 @@ distinguishes kinds of failure needs every mutator to respect the
 distinction, and a "clear the state" helper written for one caller's
 purpose will quietly serve every other purpose too.
 
+### D36. The image budget is a share of the machine, minus the heap
+
+The budget was `maxMemory / 4`, capped at 1 GB. It bounded native memory
+and was sized from the heap, which is the relationship backwards: Skia
+keeps decoded pixels outside the heap, so a larger `-Xmx` bought a larger
+image allowance as well and the two added rather than traded. The Windows
+report that started this work ran a 1 GB heap and was therefore also
+entitled to 256 MB of native pixels on top of it. The old code admitted
+in its own comment that it did not bound the heap and called itself a
+proxy for machine size; `maxMemory` is a packaging choice, not a machine
+property, so it was not even that.
+
+It is now an eighth of what the machine has left once the heap and an
+estimated 300 MB of non-heap overhead are taken off, clamped to between
+48 and **256** MB. The ceiling used to be 1 GB and a large desktop really
+did take it; 256 MB is about six full-size webtoon pages, and the reader
+shows one at a time with a couple of neighbours, so the rest bought
+nothing and risked everything.
+
+A quarter was tried first and rejected by its own numbers. It handed a
+1 GB machine 117 MB where the old formula gave 64, which is the wrong
+direction for a change whose purpose is to keep that machine alive. The
+remainder is not ours to spend; the operating system lives in it too.
+
+Measured across realistic shapes, old against new, in MB:
+
+| physical | heap | old | new |
+|---|---|---|---|
+| 1 GB | 256 | 64 | 58 |
+| 2 GB | 512 | 128 | 154 |
+| 2 GB | 1 GB | 256 | **90** |
+| 4 GB | 1 GB | 256 | 256 |
+| 8 GB | 2 GB | 512 | 256 |
+| 16 GB | 4 GB | 1024 | 256 |
+| 1 GB | 2 GB | 512 | 48 |
+
+Every constrained shape gets the same or less, except a 2 GB machine on
+its default 512 MB heap, which gains 26 MB it can plainly carry. The
+reported shape, row three, loses nearly two thirds.
+
+The local-comics caches move with it instead of staying at a fixed 96 and
+64 MB. Fixed was coherent only while the remote budget was effectively
+fixed too; against a machine-aware one it would have made the local
+caches the larger pair on a small machine, with a 1 GB laptop holding
+48 MB of remote images beside 160 MB of local ones. The fractions land on
+exactly the old numbers at the ceiling, so nothing changes on a machine
+that was already comfortable.
+
+`NON_HEAP_OVERHEAD` is an estimate, deliberately generous, covering
+metaspace, the code cache, thread stacks, Skia scratch and the window.
+Underestimating it is the direction that kills the process. Replacing it
+with a measurement means sampling RSS minus heap at steady state on each
+platform, which has not been done.
+
+Positive control: restoring the old formula fails five of the new tests,
+including "a 3 GB heap was given 805306368 against 134217728 for a 512 MB
+heap", which is the defect stated in its own words.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:

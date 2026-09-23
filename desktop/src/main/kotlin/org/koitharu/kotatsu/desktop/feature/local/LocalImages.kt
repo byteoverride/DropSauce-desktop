@@ -2,6 +2,7 @@ package org.koitharu.kotatsu.desktop.feature.local
 
 import androidx.compose.ui.graphics.ImageBitmap
 import org.koitharu.kotatsu.desktop.image.BytesBoundedCache
+import org.koitharu.kotatsu.desktop.image.ImageCache
 import org.koitharu.kotatsu.desktop.image.MemoryGuard
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import kotlinx.coroutines.Dispatchers
@@ -42,7 +43,7 @@ class LocalImages(
 
 	// Covers are downscaled to coverWidth before caching, so the entry count is already a
 	// fair proxy for memory here; the byte bound is a backstop for an unusually tall one.
-	private val covers = BytesBoundedCache(maxBytes = COVER_BUDGET, maxEntries = coverEntries)
+	private val covers = BytesBoundedCache(maxBytes = coverBudget(), maxEntries = coverEntries)
 
 	/**
 	 * Full-size pages, bounded by bytes rather than by count.
@@ -52,7 +53,7 @@ class LocalImages(
 	 * can be ten times another. The reader only shows one page plus whatever it is
 	 * scrolling past, so the count stays as a secondary cap.
 	 */
-	private val pages = BytesBoundedCache(maxBytes = PAGE_BUDGET, maxEntries = pageEntries)
+	private val pages = BytesBoundedCache(maxBytes = pageBudget(), maxEntries = pageEntries)
 
 	/** Containers whose cover could not be decoded, so the grid stops retrying them. */
 	private val deadCovers = Collections.synchronizedSet(HashSet<String>())
@@ -152,17 +153,25 @@ class LocalImages(
 		return if (ImageIO.write(scaled, "png", out)) out.toByteArray() else null
 	}
 
-	private companion object {
+	/** Internal rather than private so the budgets can be asserted against ImageCache's. */
+	internal companion object {
 
 		/**
-		 * Budgets for locally imported comics, fixed rather than scaled to the heap.
+		 * Budgets for locally imported comics, expressed as a share of the remote one.
 		 *
-		 * A quarter of the heap is already spoken for by [ImageCache], which holds remote
-		 * covers and reader pages. These are a second cache over the same memory, so they
-		 * take a modest fixed share instead of another proportional bite.
+		 * These were fixed at 96 and 64 MB, which was coherent only while `ImageCache`
+		 * was also effectively fixed. Now that it sizes itself to the machine, a fixed
+		 * 160 MB here would be the larger of the two on a small machine: a 1 GB laptop
+		 * would hold 48 MB of remote images beside 160 MB of local ones. They are a
+		 * second claim on the same memory, so they move with it.
+		 *
+		 * The fractions are chosen to land on exactly the previous numbers at the
+		 * maximum budget, so nothing changes on a machine that was already comfortable.
 		 */
-		const val COVER_BUDGET = 64L * 1024 * 1024
+		fun pageBudget(remoteBudget: Long = ImageCache.defaultBudget()): Long =
+			(remoteBudget * 3 / 8).coerceAtLeast(24L * 1024 * 1024)
 
-		const val PAGE_BUDGET = 96L * 1024 * 1024
+		fun coverBudget(remoteBudget: Long = ImageCache.defaultBudget()): Long =
+			(remoteBudget / 4).coerceAtLeast(16L * 1024 * 1024)
 	}
 }

@@ -258,7 +258,8 @@ class ImageCache(
 		else -> e::class.simpleName ?: "the request failed"
 	}
 
-	private companion object {
+	/** Internal rather than private so the local-comics caches can size against it. */
+	internal companion object {
 
 		const val BYTES_PER_PIXEL = 4L
 
@@ -266,19 +267,45 @@ class ImageCache(
 		const val MINIMUM_BUDGET = 48L * 1024 * 1024
 
 		/**
-		 * A quarter of what the JVM will let itself grow to, between 64 MB and 1 GB.
+		 * Never more than this, however large the machine.
 		 *
-		 * Tied to the heap because it is the only number available that tracks the size
-		 * of the machine, and the default heap is itself a quarter of physical memory. A
-		 * 4 GB virtual machine therefore lands around 64 MB of images rather than the
-		 * gigabytes an entry count would have allowed, which is the difference between
-		 * reading and crashing.
-		 *
-		 * Skia holds the pixels off-heap, so this does not bound the heap itself. It is a
-		 * proxy for how much room the machine has, and a proxy is what is wanted.
+		 * A deliberate ceiling rather than a consequence of the arithmetic. 256 MB is
+		 * about six full-size webtoon pages, and the reader shows one at a time with a
+		 * couple of neighbours; holding a gigabyte of decoded pages buys nothing and
+		 * risks the whole process. The previous ceiling was 1 GB and a large desktop
+		 * really did take it.
 		 */
-		fun defaultBudget(): Long =
-			(Runtime.getRuntime().maxMemory() / 4).coerceIn(MINIMUM_BUDGET, 1024L * 1024 * 1024)
+		const val MAXIMUM_BUDGET = 256L * 1024 * 1024
+
+		/**
+		 * An eighth of whatever the machine has left once the JVM has taken its share.
+		 *
+		 * This used to be a quarter of the *heap*, which had the relationship backwards.
+		 * Skia keeps these pixels outside the heap, so a bigger `-Xmx` gave a bigger
+		 * image budget as well and the two added rather than traded: the Windows report
+		 * that started this work ran a 1 GB heap and was therefore also allowed 256 MB of
+		 * native pixels on top. Sizing off physical memory and subtracting the heap makes
+		 * a larger heap shrink the image budget, which is the true relationship.
+		 *
+		 * An eighth rather than a quarter because the remainder is not ours to spend: the
+		 * operating system and everything else the person is running live in it too. A
+		 * quarter was tried first and handed a 1 GB machine 117 MB where the old formula
+		 * gave it 64, which is the wrong direction for a change whose point is to stop
+		 * that machine dying. At an eighth every constrained shape gets the same or less
+		 * than before, and only the large ones lose much, which they can afford to.
+		 *
+		 * Arguments are injectable so the arithmetic can be tested on machines it was not
+		 * run on. Falls back to the old heap proxy only when the platform will not report
+		 * its own size, and even then respects the new ceiling.
+		 */
+		fun defaultBudget(
+			physicalBytes: Long? = MemoryGuard.totalBytes(),
+			heapBytes: Long = Runtime.getRuntime().maxMemory(),
+		): Long {
+			val spare = MemoryGuard.spareForImages(physicalBytes, heapBytes)
+				?: return (heapBytes / 4).coerceIn(MINIMUM_BUDGET, MAXIMUM_BUDGET)
+			return (spare / 8).coerceIn(MINIMUM_BUDGET, MAXIMUM_BUDGET)
+		}
 
 		const val MAX_ATTEMPTS = 3
 
