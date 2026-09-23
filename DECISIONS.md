@@ -928,6 +928,20 @@ The lesson worth keeping: a type system cannot tell you that a path
 convention is wrong for a platform, and a test suite cannot tell you that
 a dialog never opens. Both passed everything.
 
+### D31. 0.9.x is a demo; 1.0.0 is a claim
+
+The desktop build stays on 0.9.x while it is something to try rather than
+something to rely on. 1.0.0 is not the next number after 0.9.13, it is a
+statement that the reader works on an ordinary machine without a caveat
+attached, and it gets used when that is true rather than when the minor
+number looks full.
+
+What is still outstanding against that bar, as of 0.9.13: the reader has
+not been shown to be comfortable on a two core machine, Windows has been
+installed but barely used, and the decode work in the low-memory plan is
+not written. None of those is a reason to slow down; all of them are
+reasons not to call this 1.0.0 yet.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:
