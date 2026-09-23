@@ -37,8 +37,12 @@ class CrashLog(private val file: Path) {
 				appendLine("java      ${System.getProperty("java.version")}")
 				appendLine("maxHeap   ${Runtime.getRuntime().maxMemory() / 1024 / 1024} MB")
 				appendLine("cpus      ${Runtime.getRuntime().availableProcessors()}")
-				// Empty unless someone has overridden it, which is itself worth knowing.
-				appendLine("renderApi ${System.getProperty("skiko.renderApi") ?: "(default)"}")
+				// What Skia actually chose, not the override property, which is empty
+				// unless somebody set it and so says nothing about what is being used.
+				// This is the line that separates "the machine has no GPU and is drawing
+				// every frame on two cores" from every other reason to be slow.
+				appendLine("renderApi ${renderApi()}")
+				appendLine("override  ${System.getProperty("skiko.renderApi") ?: "(none)"}")
 			},
 		)
 		val existing = Thread.getDefaultUncaughtExceptionHandler()
@@ -68,6 +72,21 @@ class CrashLog(private val file: Path) {
 			// Never let logging be the thing that brings the app down. If the disk is
 			// full or the directory is not writable, that is already the larger problem.
 		}
+	}
+
+	/**
+	 * The renderer Skia settled on.
+	 *
+	 * Reflective because reading it eagerly would initialise Skiko before the toolkit is
+	 * ready, and because a Skiko version that renames this must degrade to an unknown
+	 * line in a log rather than stopping the app from starting.
+	 */
+	private fun renderApi(): String = try {
+		val properties = Class.forName("org.jetbrains.skiko.SkikoProperties")
+			.getField("INSTANCE").get(null)
+		properties.javaClass.getMethod("getRenderApi").invoke(properties).toString()
+	} catch (e: Throwable) {
+		"(could not be read: ${e::class.simpleName})"
 	}
 
 	private fun stackTrace(error: Throwable): String = StringWriter()

@@ -139,17 +139,27 @@ maxHeap   1024 MB
 renderApi (default)
 ```
 
-`maxHeap` is the one to look at on a small machine or a virtual one. The JVM takes a
-quarter of physical memory, so a 4 GB VM gets about 1 GB, and the image cache sizes
-itself from that.
+Two lines carry most of the diagnosis.
 
-If the window is slow or the app dies while scrolling, the renderer is the next thing to
-try. Skia picks one for itself and the choice is not always right on a virtual machine
-with no real GPU:
+`maxHeap` is the JVM's ceiling, a quarter of physical memory. A 4 GB virtual machine
+gets about 1 GB, and the image cache sizes itself from that.
+
+`renderApi` is what Skia actually chose, not what was asked for. `OPENGL`, `DIRECT3D`,
+`METAL` or `VULKAN` mean the GPU is drawing. **`SOFTWARE_FAST` or `SOFTWARE_COMPAT` mean
+every frame is being drawn on the CPU**, which on a virtual machine with two cores is the
+usual answer to "why is it slow", and no amount of tuning elsewhere will fix it.
+
+Giving the virtual machine a real GPU, or enabling its 3D acceleration, is the actual
+cure. Failing that, the renderer can be forced, which is worth trying in both directions
+because a broken accelerated driver can be slower than honest software rendering:
 
 ```bash
-DropSauce -J-Dskiko.renderApi=SOFTWARE          # or OPENGL, or DIRECT3D on Windows
+DropSauce -J-Dskiko.renderApi=SOFTWARE_FAST     # or OPENGL, or DIRECT3D on Windows
 ```
+
+Decoding is not the bottleneck and was measured rather than assumed: Skia decodes
+lazily, so a 900x12000 page costs about 2ms to open and is rasterised on draw. Reading it
+at reduced resolution through ImageIO is slower, not faster, at 75ms.
 
 ## Known limitations
 
