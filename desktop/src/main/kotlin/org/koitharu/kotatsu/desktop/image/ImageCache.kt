@@ -1,12 +1,10 @@
 package org.koitharu.kotatsu.desktop.image
 
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.jetbrains.skia.Image
 import org.koitharu.kotatsu.core.util.ext.printStackTraceDebug
 import java.util.concurrent.ConcurrentHashMap
 
@@ -107,6 +105,13 @@ class ImageCache(
 		}
 	}
 
+	/**
+	 * One url drawn at two sizes is two entries, so the grid's thumbnail is not served
+	 * where the details screen's full-width cover was asked for.
+	 */
+	private fun keyFor(url: String, targetWidth: Int): String =
+		if (targetWidth > 0) "$url@$targetWidth" else url
+
 	/** Releases every held bitmap, for the moment the machine has no room left. */
 	private fun dropAll() {
 		synchronized(lock) {
@@ -192,9 +197,21 @@ class ImageCache(
 		}
 	}
 
-	suspend fun load(url: String, client: OkHttpClient): ImageBitmap? {
+	/**
+	 * Fetches and decodes [url], at no more than [targetWidth] pixels across.
+	 *
+	 * Zero, the default, decodes whole. A caller that knows how large it will draw the
+	 * image should say so: a cover arrives at 1500x2000 and is drawn around 360px across,
+	 * which is 12 MB held to show 0.7 MB's worth (D37).
+	 *
+	 * The decoded cache is keyed by url *and* width, because the same cover is drawn small
+	 * in a grid and large on a details screen and the two are different images. Failures
+	 * are keyed by url alone: a 403 is a 403 at any size.
+	 */
+	suspend fun load(url: String, client: OkHttpClient, targetWidth: Int = 0): ImageBitmap? {
 		if (url.isEmpty() || isExhausted(url)) return null
-		get(url)?.let { return it }
+		val key = keyFor(url, targetWidth)
+		get(key)?.let { return it }
 		return withContext(Dispatchers.IO) {
 			val bytes = try {
 				client.newCall(Request.Builder().url(url).build()).execute().use { response ->
@@ -214,6 +231,10 @@ class ImageCache(
 				record(url, "the source sent an empty response", permanent = false)
 				return@withContext null
 			}
+			// The whole size even when a smaller one was asked for. Only JPEG genuinely
+			// decodes at the reduced size; WebP produces the full image internally and
+			// PNG has to be decoded whole and then shrunk, so the worst case is the
+			// honest one to check against.
 			val needed = MemoryGuard.decodedBytesOrNull(bytes)
 			if (needed != null && !memory.canDecode(needed)) {
 				// Our own cached pixels are the largest thing we can give back, and the
@@ -226,20 +247,13 @@ class ImageCache(
 				record(url, "not enough free memory to decode this image", permanent = false)
 				return@withContext null
 			}
-			val bitmap = try {
-				Image.makeFromEncoded(bytes).toComposeImageBitmap()
-			} catch (e: Exception) {
-				// Skia has no decoder for this payload: AVIF, or an error page served
-				// with an image content type.
-				e.printStackTraceDebug()
-				null
-			}
+			val bitmap = ScaledDecode.decode(bytes, targetWidth)
 			if (bitmap == null) {
 				// A decode failure will not fix itself on retry, unlike a transport miss.
 				record(url, "this image format is not supported", permanent = true)
 				return@withContext null
 			}
-			put(url, bitmap)
+			put(key, bitmap)
 			bitmap
 		}
 	}

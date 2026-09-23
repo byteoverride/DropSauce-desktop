@@ -1024,12 +1024,18 @@ Three separate conclusions, and they are not the same conclusion:
 Ratios must be exact: request `ceil(w/n)` and not `w/n`, or 1/8 of 900 is
 112 where Skia computed 113 and the call throws.
 
-Two consequences worth stating plainly. Phase 3 is still worth doing,
-because the retained ceiling falls roughly twentyfold for all three
-formats and that is what the caches and the on-screen composables hold.
-But it is **not** the fix for a single oversized page on the dominant
-format, and the earlier plan assumed a uniform win that the measurement
-does not support.
+One consequence worth stating plainly: it is **not** the fix for a single
+oversized page on the dominant format, and the earlier plan assumed a
+uniform win that the measurement does not support.
+
+**Correction.** This decision originally went on to say the retained
+ceiling would fall "roughly twentyfold for all three formats". That was
+wrong, and wrong in the way this file keeps having to record: the
+twentyfold came from decoding at 1/4, a ratio chosen to exercise the API,
+and nothing in the reader draws a page at a quarter of its width. D37
+measured the sizes actually served and the reader saves about 3% at the
+default window. The ratio table above is sound; the inference drawn from
+it was not.
 
 Separately: WebP costs 236ms against JPEG's 86ms at full size, a flat 3x
 CPU penalty on the most common source, independent of memory. Part of
@@ -1156,6 +1162,80 @@ platform, which has not been done.
 Positive control: restoring the old formula fails five of the new tests,
 including "a 3 GB heap was given 805306368 against 134217728 for a 512 MB
 heap", which is the defect stated in its own words.
+
+### D37. Phase 3 is covers. Reader pages were measured out of it
+
+Decoding at display size only saves anything when the source is **wider**
+than the space it is drawn in. That was never checked. The plan's working
+figure was a 900x12000 page costing 43 MB, and 900x12000 was a size
+invented for a synthetic memory harness, not one ever observed.
+
+Measured against the real catalogue, reading several pages spread through
+a chapter rather than only the first. That distinction mattered: the
+first page of a chapter is usually a scanlation group's banner, and a
+first-pages-only survey reported 940x338 and 1 MB, which is the banner
+and nothing like the content behind it.
+
+What the sources actually serve:
+
+| source | page | decoded |
+|---|---|---|
+| MANGAJINX, MANHUASCAN | 948x3409 | 12 MB |
+| MANGADEX | 720x4000 to 720x7646 | 11 to 22 MB |
+| MANGADEX (paged titles) | 1536x1024 | 6 MB |
+| covers, several sources | 1500x2000 | **12 MB** |
+
+Most of the catalogue did not answer at all, which is D18 holding up.
+
+Pages are 720 to 1536 pixels wide. The strip is 60% of the window by
+default, about 1150px on a 1080p display. So capping pages at the strip
+width saves, across the sample:
+
+| strip | pages wider than it | saving |
+|---|---|---|
+| 600px | 15/15 | 52% |
+| 820px | 12/15 | 20% |
+| 1150px | 2/15 | **3%** |
+| 1540px | 0/15 | 0% |
+
+At the common case it is 3%, and above it the strip is wider than the
+page, so "decode at display size" would mean decoding *larger* than the
+source and allocating more memory to show the same detail. With zoom
+going to 6x, trading sharpness for 3% is a bad bargain twice over.
+
+**Reader pages are therefore cut from Phase 3**, and `ScaledDecode` will
+not upscale, so passing it a width larger than the source is a no-op
+rather than a mistake waiting to happen.
+
+Covers are the opposite case and the reason this phase is worth doing at
+all. 1500x2000 arriving for something the grid draws around 360px across
+is 12 MB held to show 0.7 MB's worth, **92% waste**, multiplied by every
+title on screen. A 256 MB budget holds 21 full covers, which is less than
+one screen of a library grid, so the grid was evicting and re-decoding
+constantly. At display size the same budget holds over 300.
+
+`RemoteImage` now measures itself with `BoxWithConstraints` instead of
+making twelve call sites pass a size. Two details that are not obvious:
+the target is the larger of the box's width and height, because the
+default `ContentScale.Crop` fills both axes and sizing by width alone
+leaves a portrait cover soft in a tall cell; and it is rounded up to
+128px, because without a step every frame of a window resize is a fresh
+decode of everything visible.
+
+The decode cache is keyed by url **and** width, since the same cover is a
+thumbnail in the grid and a large image on the details screen. Failures
+stay keyed by url alone: a 403 is a 403 at any size, and keying those by
+width would let a dead cover be refetched once per cell size on screen.
+
+Cost of the three rungs, measured on a 1500x2000 cover, sized against
+whole: JPEG 0.63x, WebP 0.99x, PNG 1.50x. Exactly what D33 predicted.
+JPEG genuinely subsamples, WebP produces the full image internally and
+only the retained result is smaller, and PNG pays 50% more CPU to save
+92% of the memory, once, for something then cached.
+
+The memory guard still checks the **whole** decoded size even when a
+smaller one is asked for, because two of the three formats materialise it
+regardless.
 
 ### D16. No new dependency is added without appearing in this file first
 

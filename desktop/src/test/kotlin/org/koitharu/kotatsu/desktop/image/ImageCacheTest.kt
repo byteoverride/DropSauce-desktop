@@ -252,6 +252,74 @@ class ImageCacheTest {
 		assertEquals(0, cache.heldCount())
 	}
 
+	@Test
+	fun `a cover is decoded at the width it will be drawn`(): Unit = runBlocking {
+		responses += 200 to png(1500, 2000)
+		val cache = ImageCache()
+
+		val drawn = assertNotNull(cache.load(url, client, targetWidth = 360))
+
+		assertEquals(360, drawn.width)
+		assertEquals(480, drawn.height)
+		// The saving this is all for: 12 MB of pixels became 0.7 MB.
+		assertTrue(cache.heldBytes() < 1_000_000, "held ${cache.heldBytes()} bytes for one cover")
+	}
+
+	// The same url is drawn small in a grid and large on a details screen. Keying on the
+	// url alone would serve whichever was asked for first, so half the app would show a
+	// thumbnail and the other half would hold a cover it never draws.
+	@Test
+	fun `the same url at two sizes is two entries, not one`(): Unit = runBlocking {
+		repeat(2) { responses += 200 to png(1500, 2000) }
+		val cache = ImageCache()
+
+		val small = assertNotNull(cache.load(url, client, targetWidth = 200))
+		val large = assertNotNull(cache.load(url, client, targetWidth = 800))
+
+		assertEquals(200, small.width)
+		assertEquals(800, large.width, "the small entry was served where a large one was asked for")
+		assertEquals(2, cache.heldCount())
+		assertEquals(2, hits.get())
+	}
+
+	@Test
+	fun `asking twice at the same size does not fetch twice`(): Unit = runBlocking {
+		responses += 200 to png(1500, 2000)
+		val cache = ImageCache()
+
+		assertNotNull(cache.load(url, client, targetWidth = 360))
+		assertNotNull(cache.load(url, client, targetWidth = 360))
+
+		assertEquals(1, hits.get())
+	}
+
+	// A failure belongs to the address, not to the size it was wanted at. Keying failures
+	// by width would let a dead cover be refetched once per grid cell size on screen.
+	@Test
+	fun `a failure is remembered across sizes`(): Unit = runBlocking {
+		repeat(3) { responses += 200 to "<html>not an image</html>".toByteArray() }
+		val cache = ImageCache()
+
+		assertNull(cache.load(url, client, targetWidth = 200))
+		assertEquals("this image format is not supported", cache.failureReason(url))
+
+		assertNull(cache.load(url, client, targetWidth = 800))
+		assertEquals(1, hits.get(), "a format that cannot decode was fetched again at another size")
+	}
+
+	// Reader pages pass no width and must keep every pixel the source sent: the strip is
+	// usually wider than the page, so a "display size" decode would enlarge it (D37).
+	@Test
+	fun `a page asked for with no width keeps its own size`(): Unit = runBlocking {
+		responses += 200 to png(948, 1200)
+		val cache = ImageCache()
+
+		val page = assertNotNull(cache.load(url, client))
+
+		assertEquals(948, page.width)
+		assertEquals(1200, page.height)
+	}
+
 	/** A real PNG of the given size, so the decoded cost is the one being measured. */
 	private fun png(width: Int, height: Int): ByteArray {
 		val image = java.awt.image.BufferedImage(width, height, java.awt.image.BufferedImage.TYPE_INT_ARGB)

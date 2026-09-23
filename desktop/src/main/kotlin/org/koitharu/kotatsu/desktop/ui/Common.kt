@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +34,7 @@ import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import okhttp3.OkHttpClient
 import org.koitharu.kotatsu.desktop.image.ImageCache
@@ -55,16 +57,20 @@ fun RemoteImage(
 	// like a rendering fault rather than a background.
 	background: Color = Color.Unspecified,
 ) {
-	var bitmap: ImageBitmap? by remember(url) { mutableStateOf(null) }
-	var settled by remember(url) { mutableStateOf(false) }
-	var reason: String? by remember(url) { mutableStateOf(null) }
-	LaunchedEffect(url) {
-		bitmap = url?.let { cache.load(it, client) }
-		reason = if (bitmap == null) url?.let { cache.failureReason(it) } else null
-		settled = true
-	}
 	val fill = if (background.isSpecified) background else MaterialTheme.colorScheme.surfaceVariant
-	Box(modifier = modifier.background(fill)) {
+	// Measures itself rather than making every caller pass a size. A cover is drawn at a
+	// few hundred pixels in a grid and much larger on a details screen, and the right
+	// decode size is whatever this particular box turned out to be.
+	BoxWithConstraints(modifier = modifier.background(fill)) {
+		val targetWidth = decodeWidthFor(constraints.maxWidth, constraints.maxHeight)
+		var bitmap: ImageBitmap? by remember(url, targetWidth) { mutableStateOf(null) }
+		var settled by remember(url, targetWidth) { mutableStateOf(false) }
+		var reason: String? by remember(url, targetWidth) { mutableStateOf(null) }
+		LaunchedEffect(url, targetWidth) {
+			bitmap = url?.let { cache.load(it, client, targetWidth) }
+			reason = if (bitmap == null) url?.let { cache.failureReason(it) } else null
+			settled = true
+		}
 		val bmp = bitmap
 		if (bmp != null) {
 			Image(
@@ -88,6 +94,32 @@ fun RemoteImage(
 		}
 	}
 }
+
+/**
+ * What width to decode for a box this size, in pixels, or 0 for "decode whole".
+ *
+ * The height matters because the default [ContentScale.Crop] fills both axes: a portrait
+ * cover in a cell taller than the cover's own ratio is scaled up until it covers, so
+ * decoding at the box's *width* alone would leave it soft. Taking the larger of the two
+ * gives Crop enough pixels in either direction for the portrait images covers actually
+ * are. A wide image in a very tall box could still come up short, which costs sharpness
+ * on something unusual rather than correctness on everything.
+ *
+ * Rounded up to a step so that dragging a window edge does not re-decode every cover on
+ * screen for each pixel of movement. The step costs a little memory and saves a great
+ * deal of work: without it every resize frame is a fresh decode of everything visible.
+ *
+ * An unbounded box means the layout has not decided yet, and guessing there would cache
+ * an image at a size nothing is going to draw.
+ */
+private fun decodeWidthFor(maxWidth: Int, maxHeight: Int): Int {
+	if (maxWidth <= 0 || maxWidth == Constraints.Infinity) return 0
+	val needed = if (maxHeight <= 0 || maxHeight == Constraints.Infinity) maxWidth else maxOf(maxWidth, maxHeight)
+	return ((needed + DECODE_WIDTH_STEP - 1) / DECODE_WIDTH_STEP) * DECODE_WIDTH_STEP
+}
+
+/** Fine enough to matter, coarse enough that a resize is not a decode storm. */
+private const val DECODE_WIDTH_STEP = 128
 
 /** A back arrow plus a title, used at the top of every screen below the catalogue. */
 @Composable
