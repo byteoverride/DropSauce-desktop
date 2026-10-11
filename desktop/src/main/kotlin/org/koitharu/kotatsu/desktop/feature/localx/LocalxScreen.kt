@@ -12,15 +12,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
@@ -38,7 +37,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,8 +45,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
+import org.koitharu.kotatsu.desktop.feature.local.ImportOutcome
+import org.koitharu.kotatsu.desktop.feature.local.ImportReport
 import org.koitharu.kotatsu.desktop.feature.local.LocalFeature
 import org.koitharu.kotatsu.desktop.feature.local.LocalImportException
+import org.koitharu.kotatsu.desktop.ui.AppIcons
+import org.koitharu.kotatsu.desktop.ui.AppListRow
+import org.koitharu.kotatsu.desktop.ui.EmptyBox
+import org.koitharu.kotatsu.desktop.ui.ErrorBox
+import org.koitharu.kotatsu.desktop.ui.LoadingStrip
+import org.koitharu.kotatsu.desktop.ui.Space
+import org.koitharu.kotatsu.desktop.ui.ThumbSize
 import org.koitharu.kotatsu.desktop.ui.TopBar
 import org.koitharu.kotatsu.shared.db.LocalLibraryDao
 import org.koitharu.kotatsu.shared.db.LocalMangaEntity
@@ -76,13 +83,15 @@ fun LocalxScreen(
 	var busy by remember { mutableStateOf(false) }
 	var previews: List<ImportPreview> by remember { mutableStateOf(emptyList()) }
 	var chosen: Map<String, String> by remember { mutableStateOf(emptyMap()) }
-	var message: String? by remember { mutableStateOf(null) }
+	// The report rather than its one-line summary: what worked and what failed are drawn
+	// by different components now, and a joined string cannot be taken back apart.
+	var report: ImportReport? by remember { mutableStateOf(null) }
 	var opened: LocalMangaEntity? by remember { mutableStateOf(null) }
 
 	fun pick(folders: Boolean) {
 		if (busy) return
 		busy = true
-		message = null
+		report = null
 		// The app scope, not the composition's: inspecting a folder of a hundred archives
 		// must not be cancelled by the user navigating away while it runs.
 		scope.launch {
@@ -104,11 +113,11 @@ fun LocalxScreen(
 		scope.launch {
 			try {
 				val candidates = ready.flatMap { preview -> selectedOption(preview, chosen).candidates }
-				val report = importer.commit(candidates)
+				val outcome = importer.commit(candidates)
 				// A re-import can point at different bytes under the same path, so
 				// anything remembered about it is now stale.
-				report.imported.forEach { LocalFeature.images.forget(it.path) }
-				message = report.summary()
+				outcome.imported.forEach { LocalFeature.images.forget(it.path) }
+				report = outcome
 				previews = emptyList()
 			} finally {
 				busy = false
@@ -127,17 +136,19 @@ fun LocalxScreen(
 			title = "Import",
 			subtitle = if (rows.isEmpty()) "Nothing imported yet" else "${rows.size} ${plural(rows.size, "title")}",
 			trailing = {
-				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+				Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
 					Button(onClick = { pick(folders = false) }, enabled = !busy) { Text("Pick files") }
 					Button(onClick = { pick(folders = true) }, enabled = !busy) { Text("Pick folder") }
 				}
 			},
 		)
 		if (busy) {
-			LinearProgressIndicator(Modifier.fillMaxWidth())
+			// Which of the two slow things is running is readable from the state: previews
+			// are only on screen between the inspection finishing and the import starting.
+			LoadingStrip(label = if (previews.isEmpty()) "Looking at what you picked" else "Importing")
 		}
-		message?.let { text ->
-			Notice(text = text, onDismiss = { message = null })
+		report?.let { outcome ->
+			ImportOutcome(report = outcome, onDismiss = { report = null })
 		}
 		if (previews.isNotEmpty()) {
 			ConfirmPanel(
@@ -150,11 +161,19 @@ fun LocalxScreen(
 				modifier = Modifier.weight(1f),
 			)
 		} else if (rows.isEmpty()) {
-			Empty()
+			EmptyBox(
+				modifier = Modifier.weight(1f),
+				headline = "Nothing imported yet.",
+				detail = "Pick a .cbz, a .zip, an .epub, a folder of chapter folders, or a folder " +
+					"of archives. You are shown what was found before anything is saved. Files " +
+					"stay where they are.",
+				icon = AppIcons.IMPORT,
+			)
 		} else {
 			LazyColumn(
-				contentPadding = PaddingValues(12.dp),
-				verticalArrangement = Arrangement.spacedBy(8.dp),
+				// No gap and no gutter here: `AppListRow` carries its own, and its minimum
+				// height is what separates one row from the next.
+				contentPadding = PaddingValues(vertical = Space.sm),
 				modifier = Modifier.weight(1f),
 			) {
 				items(rows, key = { it.id }) { row ->
@@ -184,20 +203,19 @@ private fun ConfirmPanel(
 	val ready = previews.filterIsInstance<ImportPreview.Ready>()
 	Column(modifier) {
 		LazyColumn(
-			contentPadding = PaddingValues(12.dp),
-			verticalArrangement = Arrangement.spacedBy(12.dp),
+			contentPadding = PaddingValues(vertical = Space.sm),
+			verticalArrangement = Arrangement.spacedBy(Space.md),
 			modifier = Modifier.weight(1f),
 		) {
 			items(previews, key = { it.source.absolutePath }) { preview ->
 				when (preview) {
-					is ImportPreview.Rejected -> Panel {
-						Text(preview.source.name, style = MaterialTheme.typography.titleSmall)
-						Text(
-							text = preview.reason,
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.error,
-						)
-					}
+					// Not inside a `Panel`: the error strip explains itself in
+					// `onSurfaceVariant`, which is a colour for `surface` and not for the
+					// panel's `surfaceContainer` fill.
+					is ImportPreview.Rejected -> ErrorBox(
+						message = preview.source.name + ": " + preview.reason,
+						compact = true,
+					)
 
 					is ImportPreview.Ready -> Panel {
 						Text(preview.source.name, style = MaterialTheme.typography.titleSmall)
@@ -230,8 +248,8 @@ private fun ConfirmPanel(
 			}
 		}
 		Row(
-			modifier = Modifier.fillMaxWidth().padding(12.dp),
-			horizontalArrangement = Arrangement.spacedBy(8.dp),
+			modifier = Modifier.fillMaxWidth().padding(Space.lg),
+			horizontalArrangement = Arrangement.spacedBy(Space.sm),
 		) {
 			Button(onClick = onConfirm, enabled = enabled && ready.isNotEmpty()) {
 				Text("Import ${ready.sumOf { selectedOption(it, chosen).candidates.size }}")
@@ -251,7 +269,7 @@ private fun OptionRow(
 	Row(
 		modifier = Modifier.fillMaxWidth().clickable(enabled = showRadio, onClick = onSelect),
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		horizontalArrangement = Arrangement.spacedBy(Space.sm),
 	) {
 		if (showRadio) {
 			RadioButton(selected = selected, onClick = onSelect)
@@ -311,7 +329,10 @@ private fun TitleScreen(entity: LocalMangaEntity, navigator: FeatureNavigator, o
 	var chapters: List<LocalxChapter> by remember(entity.id) { mutableStateOf(emptyList()) }
 	var error: String? by remember(entity.id) { mutableStateOf(null) }
 	var reading: Int? by remember(entity.id) { mutableStateOf(null) }
-	LaunchedEffect(entity.id, entity.path, entity.format) {
+	// Reading a container that is still being copied onto the disk fails and then stops
+	// failing, so the error state is worth a retry rather than only a way back.
+	var attempt by remember(entity.id) { mutableStateOf(0) }
+	LaunchedEffect(entity.id, entity.path, entity.format, attempt) {
 		try {
 			chapters = readChapters(entity)
 			error = null
@@ -342,58 +363,45 @@ private fun TitleScreen(entity: LocalMangaEntity, navigator: FeatureNavigator, o
 			onBack = onBack,
 		)
 		error?.let {
-			Text(
-				text = it,
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.error,
-				modifier = Modifier.padding(12.dp),
-			)
+			ErrorBox(message = it, onRetry = { attempt++ }, compact = true)
 		}
 		LazyColumn(
-			contentPadding = PaddingValues(12.dp),
-			verticalArrangement = Arrangement.spacedBy(4.dp),
+			contentPadding = PaddingValues(vertical = Space.sm),
 			modifier = Modifier.weight(1f),
 		) {
 			itemsIndexed(chapters, key = { _, it -> it.key + "#" + it.number }) { i, chapter ->
-				Row(
-					modifier = Modifier
-						.fillMaxWidth()
-						.clickable {
-							// A chapter the shell's reader can open goes there, because
-							// that reader has zoom, page modes and progress and this one
-							// does not. The rest this area has to show itself.
-							if (chapter.isShellReadable) {
-								val manga = localxManga(entity, chapters)
-								navigator.openLocalReader(
-									manga = manga,
-									chapters = manga.chapters.orEmpty(),
-									chapterIndex = i,
-								)
-							} else {
-								reading = i
-							}
+				AppListRow(
+					headline = chapter.title,
+					onClick = {
+						// A chapter the shell's reader can open goes there, because that
+						// reader has zoom, page modes and progress and this one does not.
+						// The rest this area has to show itself.
+						if (chapter.isShellReadable) {
+							val manga = localxManga(entity, chapters)
+							navigator.openLocalReader(
+								manga = manga,
+								chapters = manga.chapters.orEmpty(),
+								chapterIndex = i,
+							)
+						} else {
+							reading = i
 						}
-						.padding(vertical = 6.dp),
-					horizontalArrangement = Arrangement.spacedBy(8.dp),
-				) {
-					Text(
-						text = "${chapter.number.toInt()}.",
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-					Text(
-						text = chapter.title,
-						style = MaterialTheme.typography.bodyMedium,
-						modifier = Modifier.weight(1f),
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis,
-					)
-					Text(
-						text = if (chapter.isText) "text" else "${chapter.pageCount}",
-						style = MaterialTheme.typography.labelSmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-				}
+					},
+					meta = listOf(
+						if (chapter.isText) {
+							"text"
+						} else {
+							"${chapter.pageCount} ${plural(chapter.pageCount, "page")}"
+						},
+					),
+					leading = {
+						Text(
+							text = "${chapter.number.toInt()}.",
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					},
+				)
 			}
 		}
 	}
@@ -416,16 +424,20 @@ private fun TextReader(
 	onMove: (Int) -> Unit,
 ) {
 	var text by remember(chapter.key) { mutableStateOf("") }
+	// The failure is held apart from the text. Assigned into `text` it was drawn as the
+	// chapter's own prose, at the reader's font size and in the reader's colour, so
+	// "This chapter could not be read." was indistinguishable from a chapter that says so.
+	var failure: String? by remember(chapter.key) { mutableStateOf(null) }
+	var attempt by remember(chapter.key) { mutableStateOf(0) }
 	var fontSize by remember { mutableStateOf(16f) }
-	LaunchedEffect(file.path, chapter.key) {
-		text = withContext(Dispatchers.IO) {
-			try {
-				EpubReader.chapterText(file, chapter.key)
-			} catch (e: LocalImportException) {
-				e.message ?: "This chapter could not be read."
-			} catch (e: IOException) {
-				"This chapter could not be read: ${e.message ?: e::class.simpleName}"
-			}
+	LaunchedEffect(file.path, chapter.key, attempt) {
+		try {
+			text = withContext(Dispatchers.IO) { EpubReader.chapterText(file, chapter.key) }
+			failure = null
+		} catch (e: LocalImportException) {
+			failure = e.message ?: "This chapter could not be read."
+		} catch (e: IOException) {
+			failure = "This chapter could not be read: ${e.message ?: e::class.simpleName}"
 		}
 	}
 	Column(Modifier.fillMaxSize()) {
@@ -446,17 +458,28 @@ private fun TextReader(
 				}
 			},
 		)
-		Column(
-			modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
-		) {
-			Text(
-				text = text,
-				fontSize = fontSize.sp,
-				// Generous leading: the default is tuned for labels, and a wall of prose
-				// at 1.0 is unreadable at any size.
-				lineHeight = (fontSize * 1.6f).sp,
-				modifier = Modifier.padding(vertical = 16.dp),
-			)
+		val problem = failure
+		if (problem != null) {
+			// Compact rather than the full box so the chapter navigation below stays on
+			// screen: moving on to the next chapter is the recovery that usually works.
+			ErrorBox(message = problem, onRetry = { attempt++ }, compact = true)
+			Box(Modifier.weight(1f))
+		} else {
+			Column(
+				modifier = Modifier
+					.weight(1f)
+					.verticalScroll(rememberScrollState())
+					.padding(horizontal = Space.xl),
+			) {
+				Text(
+					text = text,
+					fontSize = fontSize.sp,
+					// Generous leading: the default is tuned for labels, and a wall of prose
+					// at 1.0 is unreadable at any size.
+					lineHeight = (fontSize * 1.6f).sp,
+					modifier = Modifier.padding(vertical = Space.lg),
+				)
+			}
 		}
 		ChapterNav(index, total, onMove)
 	}
@@ -510,23 +533,21 @@ private fun LocalPage(url: String) {
 			contentScale = ContentScale.FillWidth,
 			modifier = Modifier.fillMaxWidth(),
 		)
+	} else if (settled) {
+		// On the page surface rather than inside the placeholder fill: a page that will
+		// not decode is a failure, not a slow load, and `ErrorBox` explains itself in
+		// `onSurfaceVariant`, which is a colour for `surface` and not for `surfaceVariant`.
+		ErrorBox(message = "This page could not be decoded.", compact = true)
 	} else {
-		Box(
-			Modifier.fillMaxWidth().heightIn(min = 240.dp).background(MaterialTheme.colorScheme.surfaceVariant),
-			contentAlignment = Alignment.Center,
-		) {
-			if (settled) {
-				Text("page could not be decoded", style = MaterialTheme.typography.labelSmall)
-			}
-		}
+		Box(Modifier.fillMaxWidth().heightIn(min = 240.dp).background(MaterialTheme.colorScheme.surfaceVariant))
 	}
 }
 
 @Composable
 private fun ChapterNav(index: Int, total: Int, onMove: (Int) -> Unit) {
 	Row(
-		modifier = Modifier.fillMaxWidth().padding(12.dp),
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		modifier = Modifier.fillMaxWidth().padding(Space.lg),
+		horizontalArrangement = Arrangement.spacedBy(Space.sm),
 	) {
 		TextButton(onClick = { onMove(-1) }, enabled = index > 0) { Text("Previous") }
 		TextButton(onClick = { onMove(1) }, enabled = index < total - 1) { Text("Next") }
@@ -535,92 +556,69 @@ private fun ChapterNav(index: Int, total: Int, onMove: (Int) -> Unit) {
 
 @Composable
 private fun TitleRow(row: LocalMangaEntity, onOpen: () -> Unit) {
-	Row(
-		modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(12.dp),
-	) {
-		Cover(row, Modifier.widthIn(max = 48.dp).clip(RoundedCornerShape(4.dp)))
-		Column(Modifier.weight(1f)) {
-			Text(row.title, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-			Text(
-				text = "${LocalxFormat.of(row.format)?.label ?: row.format} · " +
-					"${row.chaptersCount} ${plural(row.chaptersCount, "chapter")}",
-				style = MaterialTheme.typography.labelSmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
-		}
-	}
+	AppListRow(
+		headline = row.title,
+		onClick = onOpen,
+		meta = listOf(
+			LocalxFormat.of(row.format)?.label ?: row.format,
+			"${row.chaptersCount} ${plural(row.chaptersCount, "chapter")}",
+		),
+		leading = { Cover(row) },
+	)
 }
 
+/**
+ * The thumbnail for one imported title.
+ *
+ * Sized, which it was not: `widthIn(max = 48.dp)` with no height and no aspect ratio
+ * under a `ContentScale.Crop` with no size modifier meant each row was as tall as its own
+ * decoded cover, so a list of ten was ten different row heights.
+ *
+ * No `contentDescription`: the row's headline is this title, in the same row, so a
+ * description here would have a screen reader read it twice.
+ */
 @Composable
-private fun Cover(row: LocalMangaEntity, modifier: Modifier) {
+private fun Cover(row: LocalMangaEntity) {
 	var bitmap: ImageBitmap? by remember(row.path) { mutableStateOf(null) }
 	LaunchedEffect(row.path, row.coverEntry, row.format) {
 		val url = coverUrlOf(row)
 		bitmap = url?.let { LocalFeature.images.page(it) }
 	}
-	Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
+	Box(
+		Modifier
+			.size(ThumbSize.list)
+			.clip(MaterialTheme.shapes.small)
+			.background(MaterialTheme.colorScheme.surfaceVariant),
+	) {
 		bitmap?.let {
-			Image(bitmap = it, contentDescription = null, contentScale = ContentScale.Crop)
+			Image(
+				bitmap = it,
+				contentDescription = null,
+				contentScale = ContentScale.Crop,
+				modifier = Modifier.fillMaxSize(),
+			)
 		}
 	}
 }
 
+/**
+ * The card one import candidate is described in.
+ *
+ * `surfaceContainer`, not `surfaceVariant`: the text inside is `onSurfaceVariant`, which
+ * is the scheme's pairing for `surface` and its containers, and drawing it on
+ * `surfaceVariant` put a mid tone on a mid tone.
+ */
 @Composable
 private fun Panel(content: @Composable () -> Unit) {
 	Column(
 		modifier = Modifier
 			.fillMaxWidth()
-			.background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
-			.padding(12.dp),
-		verticalArrangement = Arrangement.spacedBy(4.dp),
+			.padding(horizontal = Space.lg)
+			.background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.small)
+			.padding(Space.md),
+		verticalArrangement = Arrangement.spacedBy(Space.xs),
 	) {
 		content()
-	}
-}
-
-@Composable
-private fun Notice(text: String, onDismiss: () -> Unit) {
-	Row(
-		modifier = Modifier
-			.fillMaxWidth()
-			.padding(horizontal = 12.dp, vertical = 4.dp)
-			.background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
-			.padding(12.dp),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-	) {
-		Text(
-			text = text,
-			style = MaterialTheme.typography.bodySmall,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			modifier = Modifier
-				.weight(1f)
-				.heightIn(max = 120.dp)
-				.verticalScroll(rememberScrollState()),
-		)
-		TextButton(onClick = onDismiss) { Text("Dismiss") }
-	}
-}
-
-@Composable
-private fun Empty() {
-	Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-		Column(
-			horizontalAlignment = Alignment.CenterHorizontally,
-			verticalArrangement = Arrangement.spacedBy(8.dp),
-			modifier = Modifier.padding(32.dp),
-		) {
-			Text("Nothing imported yet.", style = MaterialTheme.typography.titleMedium)
-			Text(
-				text = "Pick a .cbz, a .zip, an .epub, a folder of chapter folders, or a folder of archives.\n" +
-					"You are shown what was found before anything is saved. Files stay where they are.",
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				textAlign = TextAlign.Center,
-			)
-		}
 	}
 }
 

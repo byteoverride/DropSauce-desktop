@@ -25,6 +25,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import org.koitharu.kotatsu.desktop.ui.SectionHeader
+import org.koitharu.kotatsu.desktop.ui.Space
 import kotlin.math.roundToInt
 
 /**
@@ -42,20 +44,25 @@ fun ColorFilterEditor(
 	sample: ImageBitmap? = null,
 	onReset: (() -> Unit)? = null,
 ) {
-	Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-		Row(
-			modifier = Modifier.fillMaxWidth(),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
-			Text("Colour filter", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-			if (onReset != null) {
-				TextButton(onClick = onReset, enabled = !params.isIdentity) { Text("Reset") }
-			}
-		}
+	Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+		// The shared section heading, so this block, the tap zones below it and the
+		// per-title list all announce themselves the same way. Reset rides in its
+		// trailing slot, where it was already sitting in a hand-rolled row.
+		SectionHeader(
+			text = "Colour filter",
+			trailing = if (onReset == null) {
+				null
+			} else {
+				{ TextButton(onClick = onReset, enabled = !params.isIdentity) { Text("Reset") } }
+			},
+		)
 		ColorFilterPreview(
 			params = params,
 			sample = sample,
-			modifier = Modifier.fillMaxWidth().height(120.dp).padding(vertical = 8.dp),
+			modifier = Modifier
+				.fillMaxWidth()
+				.height(PREVIEW_HEIGHT)
+				.padding(horizontal = Space.lg, vertical = Space.sm),
 		)
 		FilterSlider(
 			label = "Brightness",
@@ -81,12 +88,18 @@ fun ColorFilterEditor(
 			range = 0f..1f,
 			onChange = { onChange(params.copy(sepia = it)) },
 		)
-		Row(verticalAlignment = Alignment.CenterVertically) {
+		Row(
+			modifier = Modifier.padding(horizontal = Space.lg),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
 			Text("Invert", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
 			Switch(checked = params.invert, onCheckedChange = { onChange(params.copy(invert = it)) })
 		}
 	}
 }
+
+/** Tall enough for the gradient to read as a band rather than a line. */
+private val PREVIEW_HEIGHT = 120.dp
 
 /**
  * The filter applied to something, so the reader can see what the sliders do.
@@ -112,7 +125,7 @@ fun ColorFilterPreview(
 				modifier = Modifier.fillMaxWidth(),
 			)
 		} else {
-			Canvas(modifier = Modifier.fillMaxWidth().height(120.dp)) {
+			Canvas(modifier = Modifier.fillMaxWidth().height(PREVIEW_HEIGHT)) {
 				drawPreviewGradient(filter)
 			}
 		}
@@ -141,7 +154,10 @@ private fun FilterSlider(
 	range: ClosedFloatingPointRange<Float>,
 	onChange: (Float) -> Unit,
 ) {
-	Row(verticalAlignment = Alignment.CenterVertically) {
+	Row(
+		modifier = Modifier.padding(horizontal = Space.lg),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
 		Text(
 			text = label,
 			style = MaterialTheme.typography.bodyMedium,
@@ -161,3 +177,4 @@ private fun FilterSlider(
 		)
 	}
 }
+

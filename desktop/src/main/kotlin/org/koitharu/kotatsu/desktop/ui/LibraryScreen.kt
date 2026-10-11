@@ -1,28 +1,34 @@
 package org.koitharu.kotatsu.desktop.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.PointerMatcher
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.onClick
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -36,13 +42,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import org.koitharu.kotatsu.desktop.feature.migration.MigrationFeature
-import org.koitharu.kotatsu.desktop.library.ChapterCountProgress
 import org.koitharu.kotatsu.desktop.library.LibraryItem
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.shared.db.FavouriteCategoryEntity
@@ -52,6 +55,15 @@ import org.koitharu.kotatsu.shared.db.FavouriteCategoryEntity
  *
  * Categories are managed from here rather than a settings screen, because creating one
  * is part of filing a title away, not configuration.
+ *
+ * The chrome above the grid used to be able to stack six bars and in practice stacked
+ * three, which put the first cover 315 px down an 810 px window. Two things fixed that:
+ * the categories and the length filter now share one row, and the four possible notice
+ * bars collapse into two slots with a stated order. Nothing was removed to get there.
+ *
+ * There is deliberately **no filled button on this screen**. Filing a title away is not
+ * what you came to the library to do; the primary action is clicking a cover, so nothing
+ * else is allowed to outweigh one.
  */
 @Composable
 fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kotatsu.parsers.model.Manga) -> Unit) {
@@ -81,6 +93,9 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 	// choose what to read, did not.
 	val updatedIds by remember { state.library.observeTitlesWithNewChapters() }
 		.collectAsState(emptySet())
+	val selectedCategory = remember(categories, selected) {
+		categories.firstOrNull { it.categoryId == selected }
+	}
 
 	Column(Modifier.fillMaxSize()) {
 		TopBar(
@@ -91,64 +106,118 @@ fun LibraryScreen(state: AppState, onOpen: (MangaParserSource, org.koitharu.kota
 				"${items.size} of ${all.size} titles"
 			},
 			trailing = {
-				Button(onClick = { creating = true }) { Text("New category") }
+				// A TextButton, not a filled one. As a filled Button this was the single
+				// highest-contrast element in the window, which told the reader that
+				// making a category was the thing to do here.
+				TextButton(onClick = { creating = true }) {
+					AppIcon(AppIcons.ADD, contentDescription = null)
+					Box(Modifier.size(Space.xs))
+					Text("New category")
+				}
 			},
 		)
-		CategoryChips(
+		LibraryFilterRow(
 			categories = categories,
+			selectedCategory = selectedCategory,
 			selected = selected,
 			// The notice names a category and a count, so it stops being true the moment
 			// either changes.
 			onSelect = { selected = it; notice = null },
 			onManage = { manageTarget = it },
+			lengthFilter = lengthFilter,
+			onLengthFilter = { lengthFilter = it; notice = null },
+			// Only offered when the filter is narrowing something down, because the offer
+			// is "file everything you are looking at", and with no filter that is the
+			// whole library.
+			refileCount = items.size.takeIf { lengthFilter != ChapterFilter.Any && it > 0 },
+			refileFromAll = selected == null,
+			onRefile = { refiling = true },
 		)
-		ChapterFilterChips(selected = lengthFilter, onSelect = { lengthFilter = it; notice = null })
-		if (unopenable > 0) {
-			UnopenableBar(count = unopenable, onFix = { state.goToMigration() })
+		// At most two notice bars, with a stated order. Cases 1 (a run in flight), 2 (its
+		// result) and 4 (the offer to start one) are three states of the same thing, so
+		// they share one slot and 1 or 2 replaces 4. Case 3, a problem, has its own slot.
+		val countRun = countProgress
+		if (countRun != null) {
+			if (countRun.running) {
+				LoadingStrip(
+					label = "Loading chapter counts, ${countRun.done} of ${countRun.total}",
+					progress = countRun.done.toFloat() / countRun.total.coerceAtLeast(1),
+					onCancel = { state.chapterCounts.cancel() },
+				)
+			} else {
+				NoticeBar(
+					text = if (countRun.failed > 0) {
+						"Loaded ${countRun.filled} counts, ${countRun.failed} could not be reached."
+					} else {
+						"Loaded ${countRun.filled} counts."
+					},
+					onDismiss = { state.chapterCounts.dismiss() },
+				)
+			}
 		}
-		ChapterCountBar(
-			missing = missingCounts,
-			progress = countProgress,
-			onLoad = { state.chapterCounts.start(selected) },
-			onCancel = { state.chapterCounts.cancel() },
-			onDismiss = { state.chapterCounts.dismiss() },
-		)
-		if (lengthFilter != ChapterFilter.Any && items.isNotEmpty()) {
-			RefileBar(
-				count = items.size,
-				fromAll = selected == null,
-				onRefile = { refiling = true },
+		// A refile result is also something to acknowledge, so it sits in the same place
+		// and now has the container and the dismiss it never had as a bare line of text.
+		notice?.let { message ->
+			NoticeBar(text = message, onDismiss = { notice = null })
+		}
+		if (unopenable > 0) {
+			// The warning icon is not decoration. This bar signalled "something is wrong"
+			// with colorScheme.error and nothing else, which is a colour-only cue. The
+			// icon and the tone now carry it together, so neither is doing it alone.
+			NoticeBar(
+				text = if (unopenable == 1) {
+					"1 title here is on a source that cannot be opened."
+				} else {
+					"$unopenable titles here are on a source that cannot be opened."
+				},
+				icon = AppIcons.WARNING,
+				tone = NoticeTone.Problem,
+				action = {
+					AssistChip(onClick = { state.goToMigration() }, label = { Text("Fix sources") })
+				},
 			)
 		}
-		notice?.let { message ->
-			Text(
-				text = message,
-				style = MaterialTheme.typography.bodyMedium,
-				modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+		if (countRun == null && missingCounts > 0) {
+			NoticeBar(
+				text = "$missingCounts here have no chapter count yet.",
+				action = {
+					// One live request per title, so this is a control and not something
+					// the screen does on its own when it opens.
+					AssistChip(
+						onClick = { state.chapterCounts.start(selected) },
+						label = { Text("Load counts") },
+					)
+				},
 			)
 		}
 		when {
-			items.isEmpty() && all.isNotEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-				Text(
-					// Naming the unknowns matters: "nothing matches" and "nothing has a
-					// count yet" look identical on screen and mean opposite things.
-					if (missingCounts > 0) {
-						"No titles match ${lengthFilter.label.lowercase()}. " +
-							"$missingCounts here have no chapter count yet."
-					} else {
-						"No titles match ${lengthFilter.label.lowercase()}."
-					},
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-			}
+			items.isEmpty() && all.isNotEmpty() -> EmptyBox(
+				// Naming the unknowns matters: "nothing matches" and "nothing has a count
+				// yet" look identical on screen and mean opposite things. Nothing failed
+				// here, so this is an empty state and not an error.
+				headline = "No titles match ${lengthFilter.label.lowercase()}.",
+				detail = "$missingCounts here have no chapter count yet.".takeIf { missingCounts > 0 },
+				icon = AppIcons.FILTER,
+			)
 
-			items.isEmpty() -> EmptyLibrary(hasCategories = categories.isNotEmpty())
+			items.isEmpty() -> EmptyBox(
+				headline = "Nothing saved yet.",
+				detail = if (categories.isNotEmpty()) {
+					"Open a title from Sources and add it to a category."
+				} else {
+					"Create a category, then add titles from Sources."
+				},
+			)
+
+			// Adaptive(150.dp) is deliberate and measured, not a default. RemoteImage
+			// rounds its decode target up to a 128 px step, and D37 measured the cover
+			// budget against the bucket a 150 dp minimum lands in. Moving the minimum
+			// moves the bucket and invalidates that measurement.
 			else -> LazyVerticalGrid(
 				columns = GridCells.Adaptive(minSize = 150.dp),
-				contentPadding = PaddingValues(12.dp),
-				horizontalArrangement = Arrangement.spacedBy(12.dp),
-				verticalArrangement = Arrangement.spacedBy(12.dp),
+				contentPadding = PaddingValues(Space.md),
+				horizontalArrangement = Arrangement.spacedBy(Space.md),
+				verticalArrangement = Arrangement.spacedBy(Space.md),
 				modifier = Modifier.fillMaxSize(),
 			) {
 				items(items, key = { it.manga.id }) { item ->
@@ -270,13 +339,6 @@ enum class ChapterFilter(val label: String, private val range: IntRange?) {
 }
 
 /**
- * Offers to fetch the chapter counts the filter has no answer for, and reports a run.
- *
- * Shown only when there is something to fetch or something to report. A library built up
- * in this app fills its counts in as titles are opened and never sees this bar; one that
- * arrived from a backup has no counts at all and cannot use the filter until it does.
- */
-/**
  * Whether this build can actually open a title stored against [sourceName].
  *
  * Two ways to fail and they are not the same. The name may not be in the catalogue at
@@ -326,98 +388,141 @@ private fun AppState.goToMigration() {
 }
 
 /**
- * Says how many titles in view cannot be opened, and offers the screen that repairs them.
+ * The categories and the length filter, on one row.
  *
- * The migrate area could already fix all of this and nothing pointed at it. A card whose
- * source is gone was inert: it said "source unavailable" and did nothing when clicked, so
- * the repair existed only for someone who already knew to go looking for it.
+ * Two rows of chips cost 112 dp above the grid and each clipped in its own way: the
+ * length filter scrolled horizontally with no affordance and ended mid-word at "100 o",
+ * and the categories were a plain `Row` with no scroll at all, so a reader with twelve
+ * categories could not select the last three by any means.
+ *
+ * The outer container is itself a [FlowRow] with two children rather than a `Row`, so at
+ * a large interface scale the pinned controls drop to their own line instead of squeezing
+ * the chip flow to nothing. No breakpoint and no window measurement.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun UnopenableBar(count: Int, onFix: () -> Unit) {
-	Row(
-		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		Text(
-			text = if (count == 1) {
-				"1 title here is on a source that cannot be opened."
-			} else {
-				"$count titles here are on a source that cannot be opened."
-			},
-			style = MaterialTheme.typography.bodyMedium,
-			color = MaterialTheme.colorScheme.error,
-		)
-		AssistChip(onClick = onFix, label = { Text("Fix sources") })
-	}
-}
-
-@Composable
-private fun ChapterCountBar(
-	missing: Int,
-	progress: ChapterCountProgress?,
-	onLoad: () -> Unit,
-	onCancel: () -> Unit,
-	onDismiss: () -> Unit,
+private fun LibraryFilterRow(
+	categories: List<FavouriteCategoryEntity>,
+	selectedCategory: FavouriteCategoryEntity?,
+	selected: Long?,
+	onSelect: (Long?) -> Unit,
+	onManage: (FavouriteCategoryEntity) -> Unit,
+	lengthFilter: ChapterFilter,
+	onLengthFilter: (ChapterFilter) -> Unit,
+	refileCount: Int?,
+	refileFromAll: Boolean,
+	onRefile: () -> Unit,
 ) {
-	val running = progress?.running == true
-	if (!running && progress == null && missing == 0) return
-	Row(
-		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-		verticalAlignment = Alignment.CenterVertically,
+	FlowRow(
+		modifier = Modifier.fillMaxWidth(),
+		horizontalArrangement = Arrangement.spacedBy(Space.sm),
+		verticalArrangement = Arrangement.spacedBy(Space.sm),
 	) {
-		when {
-			running -> {
-				LinearProgressIndicator(
-					progress = { progress.done.toFloat() / progress.total.coerceAtLeast(1) },
-					modifier = Modifier.width(120.dp),
-				)
-				Text(
-					text = "Loading chapter counts, ${progress.done} of ${progress.total}",
-					style = MaterialTheme.typography.bodyMedium,
-				)
-				TextButton(onClick = onCancel) { Text("Stop") }
-			}
-
-			progress != null -> {
-				Text(
-					text = if (progress.failed > 0) {
-						"Loaded ${progress.filled} counts, ${progress.failed} could not be reached."
-					} else {
-						"Loaded ${progress.filled} counts."
+		CategoryChips(
+			categories = categories,
+			selected = selected,
+			onSelect = onSelect,
+			onManage = onManage,
+			modifier = Modifier.weight(1f),
+		)
+		Row(
+			// Only an end gutter: ChipRow brings its own Space.lg on the right, and the
+			// resulting gap is what separates the categories from the pinned controls.
+			modifier = Modifier
+				.align(Alignment.CenterVertically)
+				.padding(end = Space.lg),
+			horizontalArrangement = Arrangement.spacedBy(Space.sm),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			ChapterFilterMenu(selected = lengthFilter, onSelect = onLengthFilter)
+			if (refileCount != null) {
+				// The offer to file everything the filter is showing is a property of the
+				// filter, not a notice, so it sits beside the filter instead of on a bar
+				// of its own above the grid.
+				AssistChip(
+					onClick = onRefile,
+					label = {
+						Text(
+							if (refileFromAll) {
+								"Add these $refileCount to…"
+							} else {
+								"Move these $refileCount to…"
+							},
+						)
 					},
-					style = MaterialTheme.typography.bodyMedium,
 				)
-				TextButton(onClick = onDismiss) { Text("Dismiss") }
 			}
-
-			else -> {
-				Text(
-					text = "$missing here have no chapter count yet.",
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-				// One live request per title, so this is a button and not something the
-				// screen does on its own when it opens.
-				AssistChip(onClick = onLoad, label = { Text("Load counts") })
+			if (selectedCategory != null) {
+				LibraryOverflow(category = selectedCategory, onEdit = { onManage(selectedCategory) })
 			}
 		}
 	}
 }
 
-/** Files everything the length filter is currently showing into another category. */
+/**
+ * The length filter, as a menu rather than seven chips.
+ *
+ * [ChapterFilter] is single-select, and a single-select of seven is a menu. The button
+ * shows the active value, which seven chips make you scan for, and takes about 170 dp
+ * instead of a whole row. A `DropdownMenu` clamps itself to the window, so unlike the
+ * scrolling chip row it cannot cut an item off: "100 or more" gets its full label back.
+ *
+ * The active value is marked with a tick as well as being named on the button, so it is
+ * not carried by the menu's selection colour alone.
+ */
 @Composable
-private fun RefileBar(count: Int, fromAll: Boolean, onRefile: () -> Unit) {
-	Row(
-		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		AssistChip(
-			onClick = onRefile,
-			label = { Text(if (fromAll) "Add these $count to…" else "Move these $count to…") },
-		)
+private fun ChapterFilterMenu(selected: ChapterFilter, onSelect: (ChapterFilter) -> Unit) {
+	var open by remember { mutableStateOf(false) }
+	Box {
+		OutlinedButton(onClick = { open = true }) {
+			AppIcon(AppIcons.FILTER, contentDescription = null)
+			Box(Modifier.size(Space.xs))
+			Text("Chapters: ${selected.label}")
+			Box(Modifier.size(Space.xs))
+			AppIcon(AppIcons.EXPAND_MORE, contentDescription = null)
+		}
+		DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+			for (filter in ChapterFilter.entries) {
+				DropdownMenuItem(
+					text = { Text(filter.label) },
+					leadingIcon = {
+						if (filter == selected) {
+							AppIcon(AppIcons.CHECK, contentDescription = null)
+						}
+					},
+					onClick = {
+						open = false
+						onSelect(filter)
+					},
+				)
+			}
+		}
+	}
+}
+
+/**
+ * Rename, retrack and delete for the category currently in view.
+ *
+ * Drawn only when a category is selected, because editing the "All" view means nothing
+ * and an icon-only button that opens an empty menu is worse than no button.
+ */
+@Composable
+private fun LibraryOverflow(category: FavouriteCategoryEntity, onEdit: () -> Unit) {
+	var open by remember { mutableStateOf(false) }
+	Box {
+		IconButton(onClick = { open = true }) {
+			AppIcon(AppIcons.MORE, contentDescription = "More library options")
+		}
+		DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+			DropdownMenuItem(
+				text = { Text("Edit ${category.title}") },
+				leadingIcon = { AppIcon(AppIcons.EDIT, contentDescription = null) },
+				onClick = {
+					open = false
+					onEdit()
+				},
+			)
+		}
 	}
 }
 
@@ -433,7 +538,15 @@ private fun RefileDialog(
 		onDismissRequest = onDismiss,
 		title = { Text("$count titles, ${filterLabel.lowercase()}") },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+			// Capped and scrollable. The list is as long as the reader has categories, and
+			// an unbounded Column of a dozen of them at interface scale 2.0 made the
+			// dialog taller than the window and put Cancel off-screen.
+			Column(
+				modifier = Modifier
+					.heightIn(max = DIALOG_LIST_MAX_HEIGHT)
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(Space.xs),
+			) {
 				if (categories.isEmpty()) {
 					Text(
 						"No other category to file these into.",
@@ -448,7 +561,7 @@ private fun RefileDialog(
 						modifier = Modifier
 							.fillMaxWidth()
 							.clickable { onConfirm(category) }
-							.padding(vertical = 8.dp),
+							.padding(vertical = Space.sm),
 					)
 				}
 			}
@@ -457,80 +570,48 @@ private fun RefileDialog(
 	)
 }
 
-@Composable
-private fun ChapterFilterChips(selected: ChapterFilter, onSelect: (ChapterFilter) -> Unit) {
-	Row(
-		modifier = Modifier
-			.fillMaxWidth()
-			.horizontalScroll(rememberScrollState())
-			.padding(horizontal = 16.dp, vertical = 4.dp),
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		Text(
-			text = "Chapters",
-			style = MaterialTheme.typography.labelLarge,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-		)
-		for (filter in ChapterFilter.entries) {
-			FilterChip(
-				selected = filter == selected,
-				onClick = { onSelect(filter) },
-				label = { Text(filter.label) },
-			)
-		}
-	}
-}
+/**
+ * A dialog body that loops over a caller-supplied list stops growing here.
+ *
+ * `CurateScreen` already capped its own at 320 dp; the three dialogs that did not simply
+ * grew past the bottom of the window and took their confirm button with them.
+ */
+private val DIALOG_LIST_MAX_HEIGHT = 400.dp
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CategoryChips(
 	categories: List<FavouriteCategoryEntity>,
 	selected: Long?,
 	onSelect: (Long?) -> Unit,
 	onManage: (FavouriteCategoryEntity) -> Unit,
+	modifier: Modifier = Modifier,
 ) {
-	Row(
-		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
+	ChipRow(modifier = modifier) {
 		FilterChip(
 			selected = selected == null,
 			onClick = { onSelect(null) },
 			label = { Text("All") },
 		)
 		for (category in categories) {
+			val isSelected = selected == category.categoryId
 			FilterChip(
-				selected = selected == category.categoryId,
+				selected = isSelected,
 				onClick = { onSelect(category.categoryId) },
 				label = { Text(category.title) },
-			)
-		}
-		if (selected != null) {
-			categories.firstOrNull { it.categoryId == selected }?.let { category ->
-				AssistChip(onClick = { onManage(category) }, label = { Text("Edit") })
-			}
-		}
-	}
-}
-
-@Composable
-private fun EmptyLibrary(hasCategories: Boolean) {
-	Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-		Column(
-			horizontalAlignment = Alignment.CenterHorizontally,
-			verticalArrangement = Arrangement.spacedBy(8.dp),
-			modifier = Modifier.padding(32.dp),
-		) {
-			Text("Nothing saved yet.", style = MaterialTheme.typography.titleMedium)
-			Text(
-				text = if (hasCategories) {
-					"Open a title from Sources and add it to a category."
+				// Right-click edits the category in view. Editing used to be an "Edit"
+				// chip appended to this row, which made the row's length depend on the
+				// selection and put a verb in a row of nouns. The same action is in the
+				// overflow menu beside the filter, which is where anyone who does not try
+				// the secondary mouse button will find it.
+				modifier = if (isSelected) {
+					Modifier.onClick(
+						matcher = PointerMatcher.mouse(PointerButton.Secondary),
+						onClick = { onManage(category) },
+					)
 				} else {
-					"Create a category, then add titles from Sources."
+					Modifier
 				},
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 		}
 	}
@@ -546,63 +627,37 @@ private fun LibraryCard(
 ) {
 	val source = remember(item.sourceName) { catalogueByName[item.sourceName] }
 	val health = remember(item.sourceName) { sourceHealth(item.sourceName) }
-	Column(
-		modifier = Modifier
-			.fillMaxWidth()
-			// Always clickable. A card that cannot be read leads to the repair instead of
-			// to the reader, which beats a card that swallows the click and does nothing.
-			.clickable {
-				if (health == SourceHealth.Ok && source != null) onOpen(source, item.manga) else onFixSource()
-			},
-		verticalArrangement = Arrangement.spacedBy(4.dp),
-	) {
-		RemoteImage(
-			url = item.manga.coverUrl,
-			// Covers need the source's own client; falling back to a plain one would
-			// 403 on sources that check headers (see D1).
-			client = remember(source) {
-				source?.let { state.sources.session(it).client } ?: okhttp3.OkHttpClient()
-			},
-			cache = state.images,
-			contentDescription = item.manga.title,
-			modifier = Modifier.fillMaxWidth().aspectRatio(0.7f).clip(RoundedCornerShape(10.dp)),
-		)
-		Text(
-			text = item.manga.title,
-			style = MaterialTheme.typography.bodySmall,
-			maxLines = 2,
-			overflow = TextOverflow.Ellipsis,
-		)
-		Text(
-			text = if (item.chaptersCount > 0) {
-				"${item.chaptersCount} chapters"
-			} else {
-				"chapters not loaded"
-			},
-			style = MaterialTheme.typography.labelSmall,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-		)
-		if (hasNewChapters) {
-			Text(
-				text = "new chapters",
-				style = MaterialTheme.typography.labelSmall,
-				color = MaterialTheme.colorScheme.primary,
-			)
-		}
-		if (health != SourceHealth.Ok) {
-			// Name which of the two problems it is. A source flagged broken used to look
-			// identical to a working one here and only failed once the reader was open.
-			Text(
-				text = when (health) {
-					SourceHealth.Missing -> "source unavailable, tap to fix"
-					SourceHealth.Broken -> "source is broken, tap to fix"
-					SourceHealth.Ok -> ""
-				},
-				style = MaterialTheme.typography.labelSmall,
-				color = MaterialTheme.colorScheme.error,
-			)
-		}
-	}
+	CoverCard(
+		title = item.manga.title,
+		coverUrl = item.manga.coverUrl,
+		// Covers need the source's own client; falling back to a plain one would
+		// 403 on sources that check headers (see D1).
+		client = remember(source) {
+			source?.let { state.sources.session(it).client } ?: okhttp3.OkHttpClient()
+		},
+		images = state.images,
+		// Always clickable. A card that cannot be read leads to the repair instead of
+		// to the reader, which beats a card that swallows the click and does nothing.
+		onClick = {
+			if (health == SourceHealth.Ok && source != null) onOpen(source, item.manga) else onFixSource()
+		},
+		secondary = if (item.chaptersCount > 0) {
+			"${item.chaptersCount} chapters"
+		} else {
+			"chapters not loaded"
+		},
+		// On the cover rather than a fourth line of text under it. A card could stack
+		// title over two lines, a chapter count, "new chapters" and a source problem,
+		// which is five lines of caption per cover and is why the rows read as ragged.
+		badge = if (hasNewChapters) CoverBadge("New", CoverBadgeTone.New) else null,
+		// Name which of the two problems it is. A source flagged broken used to look
+		// identical to a working one here and only failed once the reader was open.
+		problem = when (health) {
+			SourceHealth.Missing -> "source unavailable, tap to fix"
+			SourceHealth.Broken -> "source is broken, tap to fix"
+			SourceHealth.Ok -> null
+		},
+	)
 }
 
 @Composable
@@ -649,7 +704,7 @@ private fun ManageCategoryDialog(
 		onDismissRequest = onDismiss,
 		title = { Text("Edit category") },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+			Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
 				OutlinedTextField(
 					value = name,
 					onValueChange = { name = it },
@@ -658,7 +713,7 @@ private fun ManageCategoryDialog(
 				)
 				Row(
 					verticalAlignment = Alignment.CenterVertically,
-					horizontalArrangement = Arrangement.spacedBy(12.dp),
+					horizontalArrangement = Arrangement.spacedBy(Space.md),
 				) {
 					Switch(
 						checked = category.track,

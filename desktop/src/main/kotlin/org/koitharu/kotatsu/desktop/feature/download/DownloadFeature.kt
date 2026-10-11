@@ -7,6 +7,7 @@ import org.koitharu.kotatsu.desktop.feature.Feature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
 import java.util.IdentityHashMap
+import org.koitharu.kotatsu.desktop.ui.AppIcons
 
 /**
  * Downloads and offline reading.
@@ -21,7 +22,7 @@ object DownloadFeature : Feature {
 
 	override val title: String = "Downloads"
 
-	override val glyph: String = "⬇"
+	override val icon: String = AppIcons.DOWNLOADS
 
 	/**
 	 * One repository per context, by identity.

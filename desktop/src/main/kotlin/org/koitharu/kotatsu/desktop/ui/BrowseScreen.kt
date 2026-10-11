@@ -1,11 +1,8 @@
 package org.koitharu.kotatsu.desktop.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,8 +10,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -28,10 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -161,50 +153,37 @@ fun BrowseScreen(
 			singleLine = true,
 			modifier = Modifier
 				.fillMaxWidth()
-				.padding(horizontal = 16.dp, vertical = 4.dp)
+				.padding(horizontal = Space.lg, vertical = Space.sm)
 				.onEnter { submitted = query.trim() },
 		)
 		if (ranked.hiddenCount > 0) {
-			Row(
-				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-			) {
-				Text(
-					text = "${ranked.hiddenCount} of ${items.size} returned " +
-						"${if (ranked.hiddenCount == 1) "title has" else "titles have"} nothing to do " +
-						"with \"$submitted\"",
-					style = MaterialTheme.typography.labelSmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.weight(1f),
-				)
-				TextButton(onClick = { showLoose = !showLoose }) {
-					Text(if (showLoose) "Hide them" else "Show them")
-				}
-			}
+			// Neither of these two is a failure, so they are notices rather than errors.
+			NoticeBar(
+				text = "${ranked.hiddenCount} of ${items.size} returned " +
+					"${if (ranked.hiddenCount == 1) "title has" else "titles have"} nothing to do " +
+					"with \"$submitted\"",
+				action = {
+					TextButton(onClick = { showLoose = !showLoose }) {
+						Text(if (showLoose) "Hide them" else "Show them")
+					}
+				},
+			)
 		}
 		if (stalled && !exhausted) {
-			Row(
-				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-			) {
-				Text(
-					text = "Stopped paging: the last $MAX_FRUITLESS_PAGES pages held no match for " +
-						"\"$submitted\".",
-					style = MaterialTheme.typography.labelSmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.weight(1f),
-				)
-				TextButton(
-					onClick = {
-						fruitlessPages = 0
-						uiScope.launch { loadMore() }
-					},
-				) {
-					Text("Keep looking")
-				}
-			}
+			NoticeBar(
+				text = "Stopped paging: the last $MAX_FRUITLESS_PAGES pages held no match for " +
+					"\"$submitted\".",
+				action = {
+					TextButton(
+						onClick = {
+							fruitlessPages = 0
+							uiScope.launch { loadMore() }
+						},
+					) {
+						Text("Keep looking")
+					}
+				},
+			)
 		}
 		when {
 			items.isEmpty() && loading -> LoadingBox()
@@ -213,73 +192,44 @@ fun BrowseScreen(
 				onRetry = { attempt++ },
 			)
 
-			items.isEmpty() -> Box(Modifier.fillMaxSize()) {
-				Text(
-					text = "Nothing found.",
-					modifier = Modifier.padding(24.dp),
-					style = MaterialTheme.typography.bodyMedium,
-				)
-			}
+			items.isEmpty() -> EmptyBox(
+				headline = "Nothing found.",
+				detail = if (submitted.isNotBlank()) {
+					"This source answered the search for \"$submitted\" with no titles at all."
+				} else {
+					null
+				},
+				icon = AppIcons.DISCOVER,
+			)
 
-			shown.isEmpty() -> Box(Modifier.fillMaxSize()) {
+			shown.isEmpty() -> EmptyBox(
 				// Rows came back and all of them were held back. That is a different thing to
 				// say than "nothing found", and the toggle above is the way out of it.
-				Text(
-					text = "${items.size} ${if (items.size == 1) "title" else "titles"} came back " +
-						"and none of them matches \"$submitted\".",
-					modifier = Modifier.padding(24.dp),
-					style = MaterialTheme.typography.bodyMedium,
-				)
-			}
+				headline = "Nothing matches \"$submitted\".",
+				detail = "${items.size} ${if (items.size == 1) "title" else "titles"} came back " +
+					"and none of them has anything to do with it. Show them above lists them anyway.",
+				icon = AppIcons.DISCOVER,
+			)
 
 			else -> LazyVerticalGrid(
-				columns = GridCells.Adaptive(minSize = 150.dp),
+				columns = GridCells.Adaptive(minSize = COVER_CELL_MIN_WIDTH),
 				state = gridState,
-				contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-				horizontalArrangement = Arrangement.spacedBy(12.dp),
-				verticalArrangement = Arrangement.spacedBy(12.dp),
+				contentPadding = PaddingValues(Space.md),
+				horizontalArrangement = Arrangement.spacedBy(Space.md),
+				verticalArrangement = Arrangement.spacedBy(Space.md),
 				modifier = Modifier.fillMaxSize(),
 			) {
 				itemsIndexed(shown, key = { i, m -> "${m.id}-$i" }) { _, manga ->
-					MangaCard(
-						manga = manga,
-						state = state,
+					CoverCard(
+						title = manga.title,
+						coverUrl = manga.coverUrl,
 						client = session.client,
+						images = state.images,
 						onClick = { onOpen(manga) },
 					)
 				}
 			}
 		}
-	}
-}
-
-@Composable
-private fun MangaCard(
-	manga: Manga,
-	state: AppState,
-	client: okhttp3.OkHttpClient,
-	onClick: () -> Unit,
-) {
-	Column(
-		modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-		verticalArrangement = Arrangement.spacedBy(4.dp),
-	) {
-		RemoteImage(
-			url = manga.coverUrl,
-			client = client,
-			cache = state.images,
-			contentDescription = manga.title,
-			modifier = Modifier
-				.fillMaxWidth()
-				.aspectRatio(COVER_ASPECT)
-				.clip(RoundedCornerShape(10.dp)),
-		)
-		Text(
-			text = manga.title,
-			style = MaterialTheme.typography.bodySmall,
-			maxLines = 2,
-			overflow = TextOverflow.Ellipsis,
-		)
 	}
 }
 
@@ -292,8 +242,14 @@ private fun preferredOrder(available: Set<SortOrder>, isSearch: Boolean): SortOr
 	}
 }
 
-/** Typical manga cover proportions; keeps the grid from jumping before covers load. */
-private const val COVER_ASPECT = 0.7f
-
 /** How close to the end of the grid to get before asking for the next page. */
 private const val GRID_PREFETCH_DISTANCE = 8
+
+/**
+ * The cover grid's smallest cell.
+ *
+ * Unchanged at 150 dp on purpose: with the cover drawn at [COVER_ASPECT] this is what
+ * sets the decode bucket `RemoteImage` rounds up to, and the memory budget in DECISIONS
+ * D37 was measured against it.
+ */
+private val COVER_CELL_MIN_WIDTH = 150.dp

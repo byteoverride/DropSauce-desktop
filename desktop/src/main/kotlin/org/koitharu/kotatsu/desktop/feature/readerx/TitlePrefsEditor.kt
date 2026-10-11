@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -13,7 +14,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import org.koitharu.kotatsu.desktop.ui.ChipRow
+import org.koitharu.kotatsu.desktop.ui.Space
 import org.koitharu.kotatsu.shared.settings.ReadingMode
 
 /**
@@ -37,8 +39,13 @@ fun TitlePrefsEditor(
 	branches: List<String> = emptyList(),
 	onClear: (() -> Unit)? = null,
 ) {
-	Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-		Row(verticalAlignment = Alignment.CenterVertically) {
+	// No horizontal padding here: the chip row carries the gutter itself, and every other
+	// child adds it, so a long branch list and a text field start on the same edge.
+	Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+		Row(
+			modifier = Modifier.padding(horizontal = Space.lg),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
 			Text(
 				text = "This title only",
 				style = MaterialTheme.typography.titleSmall,
@@ -50,8 +57,11 @@ fun TitlePrefsEditor(
 		}
 
 		if (branches.isNotEmpty()) {
-			Text("Branch or scanlator", style = MaterialTheme.typography.labelLarge)
-			Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+			// Was a plain Row with no overflow handling at all, and the list is whatever
+			// the caller fetched: a title on a big aggregator can carry a dozen scanlator
+			// branches with long names, and the ones past the window edge could not be
+			// reached by scrolling, dragging or any other means.
+			ChipRow(label = "Branch or scanlator", collapsedRows = 2) {
 				FilterChip(
 					selected = prefs.branch == null,
 					onClick = { onChange(prefs.copy(branch = null)) },
@@ -72,7 +82,7 @@ fun TitlePrefsEditor(
 				label = { Text("Branch or scanlator") },
 				placeholder = { Text("No preference") },
 				singleLine = true,
-				modifier = Modifier.fillMaxWidth(),
+				modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
 			)
 		}
 
@@ -84,7 +94,7 @@ fun TitlePrefsEditor(
 			label = { Text("Show this title as") },
 			placeholder = { Text("The name the source gives it") },
 			singleLine = true,
-			modifier = Modifier.fillMaxWidth(),
+			modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
 		)
 
 		OutlinedTextField(
@@ -93,10 +103,14 @@ fun TitlePrefsEditor(
 			label = { Text("Cover image address") },
 			placeholder = { Text("The cover the source gives it") },
 			singleLine = true,
-			modifier = Modifier.fillMaxWidth(),
+			modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
 		)
 
-		Row(verticalAlignment = Alignment.CenterVertically) {
+		Row(
+			modifier = Modifier.padding(horizontal = Space.lg),
+			horizontalArrangement = Arrangement.spacedBy(Space.lg),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
 			Column(Modifier.weight(1f)) {
 				Text("Incognito", style = MaterialTheme.typography.bodyMedium)
 				Text(

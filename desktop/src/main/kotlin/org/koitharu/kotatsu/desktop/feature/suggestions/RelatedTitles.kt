@@ -1,9 +1,11 @@
 package org.koitharu.kotatsu.desktop.feature.suggestions
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
@@ -16,8 +18,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -27,6 +29,13 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
+import org.koitharu.kotatsu.desktop.ui.AppIcons
+import org.koitharu.kotatsu.desktop.ui.COVER_ASPECT
+import org.koitharu.kotatsu.desktop.ui.EmptyBox
+import org.koitharu.kotatsu.desktop.ui.LoadingStrip
+import org.koitharu.kotatsu.desktop.ui.SectionHeader
+import org.koitharu.kotatsu.desktop.ui.Space
+import org.koitharu.kotatsu.desktop.ui.ThumbSize
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaListFilter
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
@@ -187,9 +196,16 @@ private suspend fun fetchRelated(
  * A strip of related titles the details screen can host.
  *
  * Takes explicit parameters and no navigator: the shell wires [onOpen], so this area
- * does not need to know how the details screen navigates. It renders nothing at all
- * while loading and nothing at all when there is nothing to say, because a permanently
- * empty box under a chapter list is worse than no box.
+ * does not need to know how the details screen navigates.
+ *
+ * The strip owns its own "Related titles" heading, which is why the details screen
+ * deliberately does not add one above it: two headings for one strip is worse than
+ * either of them alone.
+ *
+ * While the lookup runs it holds the cover's height open instead of drawing nothing, so
+ * the chapter list below does not jump when the answer arrives. When there is nothing to
+ * say it still draws nothing by default, because a permanently empty box under a chapter
+ * list is worse than no box.
  */
 @Composable
 fun RelatedTitlesStrip(
@@ -206,35 +222,46 @@ fun RelatedTitlesStrip(
 			.getOrElse { RelatedState.Nothing(it.describe()) }
 	}
 	when (val current = state) {
-		is RelatedState.Loading -> Unit
+		is RelatedState.Loading -> Column(modifier.fillMaxWidth()) {
+			SectionHeader("Related titles")
+			Box(
+				modifier = Modifier.fillMaxWidth().height(ThumbSize.strip / COVER_ASPECT),
+				contentAlignment = Alignment.Center,
+			) {
+				LoadingStrip(label = "Looking for related titles")
+			}
+		}
 
 		is RelatedState.Nothing -> if (showExplanationWhenEmpty) {
-			Text(
-				text = current.explanation,
-				style = MaterialTheme.typography.labelSmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+			EmptyBox(
+				headline = "No related titles",
+				detail = current.explanation,
+				icon = AppIcons.DISCOVER,
+				modifier = modifier,
 			)
 		}
 
 		is RelatedState.Ready -> Column(modifier.fillMaxWidth()) {
-			Text(
+			SectionHeader(
 				text = "Related titles",
-				style = MaterialTheme.typography.titleSmall,
-				modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+				count = current.items.size,
+				trailing = {
+					// Named here rather than swallowed: a strip of three when five sources
+					// were asked is a different thing from a strip of three.
+					if (current.failedSources > 0) {
+						Text(
+							text = "${current.failedSources} source" +
+								"${if (current.failedSources == 1) "" else "s"} did not answer",
+							style = MaterialTheme.typography.labelSmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+				},
 			)
-			if (current.failedSources > 0) {
-				Text(
-					text = "${current.failedSources} source(s) did not answer",
-					style = MaterialTheme.typography.labelSmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.padding(horizontal = 16.dp),
-				)
-			}
 			LazyRow(
-				contentPadding = PaddingValues(horizontal = 16.dp),
-				horizontalArrangement = Arrangement.spacedBy(12.dp),
-				modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+				contentPadding = PaddingValues(horizontal = Space.lg),
+				horizontalArrangement = Arrangement.spacedBy(Space.md),
+				modifier = Modifier.fillMaxWidth().padding(vertical = Space.sm),
 			) {
 				items(current.items, key = { it.manga.id }) { item ->
 					SuggestionCoverCard(
@@ -245,7 +272,7 @@ fun RelatedTitlesStrip(
 						images = context.images,
 						onClick = { onOpen(item.source, item.manga) },
 						onDismiss = null,
-						modifier = Modifier.width(STRIP_ITEM_WIDTH),
+						modifier = Modifier.width(ThumbSize.strip),
 					)
 				}
 			}
@@ -264,6 +291,3 @@ private const val MAX_RELATED = 20
 
 /** Per source, before ranking. */
 private const val PER_SOURCE = 20
-
-/** Cover width in the horizontal strip. */
-private val STRIP_ITEM_WIDTH = 132.dp

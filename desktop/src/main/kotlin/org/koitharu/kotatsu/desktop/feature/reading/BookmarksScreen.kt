@@ -1,24 +1,19 @@
 package org.koitharu.kotatsu.desktop.feature.reading
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -31,7 +26,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +34,14 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
+import org.koitharu.kotatsu.desktop.ui.AppIcon
+import org.koitharu.kotatsu.desktop.ui.AppIcons
+import org.koitharu.kotatsu.desktop.ui.AppListRow
+import org.koitharu.kotatsu.desktop.ui.EmptyBox
+import org.koitharu.kotatsu.desktop.ui.ErrorBox
 import org.koitharu.kotatsu.desktop.ui.RemoteImage
+import org.koitharu.kotatsu.desktop.ui.Space
+import org.koitharu.kotatsu.desktop.ui.ThumbSize
 import org.koitharu.kotatsu.desktop.ui.TopBar
 import org.koitharu.kotatsu.parsers.model.Manga
 import java.time.Instant
@@ -119,29 +120,31 @@ fun BookmarksScreen(context: FeatureContext, navigator: FeatureNavigator) {
 			subtitle = if (bookmarks.isEmpty()) null else bookmarks.size.plural("page", "pages"),
 			trailing = {
 				if (bookmarks.isNotEmpty()) {
-					Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-						for (option in BookmarkGrouping.entries) {
-							Button(
-								onClick = { grouping = option },
-								enabled = option != grouping,
-							) {
-								Text(if (option == BookmarkGrouping.NEWEST) "Newest" else "By title")
-							}
+					// Straight into the bar's own Row: it already spaces its children by
+					// Space.sm, so the wrapper this used to carry was a second gap rule.
+					for (option in BookmarkGrouping.entries) {
+						Button(
+							onClick = { grouping = option },
+							enabled = option != grouping,
+						) {
+							Text(if (option == BookmarkGrouping.NEWEST) "Newest" else "By title")
 						}
 					}
 				}
 			},
 		)
-		if (failure != null) {
-			Text(
-				text = failure.orEmpty(),
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.error,
-				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-			)
+		failure?.let { message ->
+			// Compact, because the list underneath is still usable: one dead chapter is
+			// not a reason to throw away every other bookmark on screen. The icon and
+			// the headline carry "this failed", so the text is not red on its own.
+			ErrorBox(message = message, compact = true)
 		}
 		if (bookmarks.isEmpty()) {
-			EmptyNote("No bookmarks yet.\nSave a page while reading and it shows up here.")
+			EmptyBox(
+				headline = "No bookmarks yet.",
+				detail = "Save a page while reading and it shows up here.",
+				icon = AppIcons.BOOKMARKS,
+			)
 		} else {
 			LazyColumn(Modifier.fillMaxSize()) {
 				when (grouping) {
@@ -160,6 +163,8 @@ fun BookmarksScreen(context: FeatureContext, navigator: FeatureNavigator) {
 								scope.launch { repository.remove(bookmark.manga.id, bookmark.pageId) }
 							},
 						)
+						// Decoration now, not structure: the row's own minimum height and
+						// hover state carry the separation. See UI_SPEC 1.6.
 						HorizontalDivider()
 					}
 
@@ -227,10 +232,17 @@ fun BookmarkToggle(
 		repository.observeFor(manga.id)
 	}.collectAsState(emptyList())
 	val isSaved = saved.any { it.pageId == pageId }
-	// A star rather than an icon artifact, matching TopBar's back arrow: one glyph is
-	// not worth pulling in material-icons.
-	OutlinedButton(
-		onClick = {
+	// An icon toggle rather than an outlined button with a text label: the reader's top
+	// bar has room for a 48 dp control and the two unicode stars it used to draw differ
+	// only in fill at that size.
+	//
+	// Nothing here sets a colour. This renders inside the reader, which wraps its own
+	// subtree in a nested theme, so the checked tint and the content colour both arrive
+	// from that theme. The state is carried by the filled glyph *and* by the description,
+	// so neither the fill nor the tint is signalling it alone.
+	IconToggleButton(
+		checked = isSaved,
+		onCheckedChange = {
 			scope.launch {
 				repository.toggle(
 					manga = manga,
@@ -244,19 +256,33 @@ fun BookmarkToggle(
 		},
 		modifier = modifier,
 	) {
-		Text(if (isSaved) "\u2605 Saved" else "\u2606 Bookmark")
+		AppIcon(
+			name = AppIcons.BOOKMARKS,
+			// A toggle's meaning is its state, and this control has no visible label to
+			// read it off, so the state goes in the description rather than in the glyph.
+			contentDescription = if (isSaved) "Remove this bookmark" else "Bookmark this page",
+			filled = isSaved,
+		)
 	}
 }
 
+/**
+ * The title a group of bookmarks sits under.
+ *
+ * Deliberately not `SectionHeader`: a manga title is long and arbitrary, and
+ * `SectionHeader` gives its text node no `weight` and no `maxLines`, so a long one
+ * squeezes the count and the button beside it instead of ellipsising. The style, the
+ * gutter and the vertical rhythm here are the same as that component's.
+ */
 @Composable
 private fun GroupHeader(title: String, count: Int, onDeleteAll: () -> Unit) {
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
 			.background(MaterialTheme.colorScheme.surfaceVariant)
-			.padding(horizontal = 16.dp, vertical = 6.dp),
+			.padding(horizontal = Space.lg, vertical = Space.md),
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		horizontalArrangement = Arrangement.spacedBy(Space.sm),
 	) {
 		Text(
 			text = title,
@@ -286,59 +312,40 @@ private fun BookmarkRow(
 ) {
 	val source = remember(bookmark.sourceName) { parserSourceOrNull(bookmark.sourceName) }
 	val client = remember(source) { source?.let { context.clientFor(it) } ?: fallbackClient }
-	Row(
-		modifier = Modifier
-			.fillMaxWidth()
-			.clickable(enabled = !busy) { onOpen() }
-			.padding(horizontal = 16.dp, vertical = 10.dp),
-		horizontalArrangement = Arrangement.spacedBy(12.dp),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		RemoteImage(
-			url = bookmark.imageUrl,
-			client = client,
-			cache = context.images,
-			contentDescription = "Page ${bookmark.page + 1}",
-			modifier = Modifier.width(56.dp).height(76.dp).clip(RoundedCornerShape(6.dp)),
-		)
-		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-			if (showTitle) {
-				Text(
-					text = bookmark.manga.title,
-					style = MaterialTheme.typography.bodyLarge,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis,
-				)
+	val pageLabel = "Page ${bookmark.page + 1}"
+	AppListRow(
+		// Under a group header the title is already on screen, so the page is what
+		// identifies the row; a blank headline would leave it with no first line.
+		headline = if (showTitle) bookmark.manga.title else pageLabel,
+		// No click while the details fetch is in flight: a second click would start a
+		// second round trip to the same source for the same row.
+		onClick = if (busy) null else onOpen,
+		supporting = pageLabel.takeIf { showTitle },
+		meta = listOf(
+			"${(bookmark.percent * 100).toInt()}% through",
+			bookmark.sourceName,
+			formatTimestamp(bookmark.createdAt),
+		),
+		leading = {
+			RemoteImage(
+				url = bookmark.imageUrl,
+				client = client,
+				cache = context.images,
+				contentDescription = pageLabel,
+				modifier = Modifier.size(ThumbSize.list).clip(MaterialTheme.shapes.small),
+			)
+		},
+		trailing = {
+			if (busy) {
+				// Stays a 20 dp indicator rather than becoming a LoadingStrip: it
+				// replaces one button in place, and a strip would relabel the whole row
+				// as loading when only its own open is in flight (UI_SPEC 5.3).
+				CircularProgressIndicator(Modifier.size(20.dp))
+			} else {
+				TextButton(onClick = onDelete) { Text("Remove") }
 			}
-			Text(
-				text = "Page ${bookmark.page + 1}  \u00B7  ${(bookmark.percent * 100).toInt()}% through",
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
-			Text(
-				text = "${bookmark.sourceName}  \u00B7  ${formatTimestamp(bookmark.createdAt)}",
-				style = MaterialTheme.typography.labelSmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
-		}
-		if (busy) {
-			CircularProgressIndicator(Modifier.size(20.dp))
-		} else {
-			TextButton(onClick = onDelete) { Text("Remove") }
-		}
-	}
-}
-
-@Composable
-private fun EmptyNote(message: String) {
-	Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-		Text(
-			text = message,
-			style = MaterialTheme.typography.bodyMedium,
-			textAlign = TextAlign.Center,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-		)
-	}
+		},
+	)
 }
 
 /** Bookmarks are keyed by the pair, so neither half alone is unique in the list. */

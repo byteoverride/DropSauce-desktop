@@ -8,6 +8,7 @@ import org.koitharu.kotatsu.desktop.feature.Feature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
 import java.util.WeakHashMap
+import org.koitharu.kotatsu.desktop.ui.AppIcons
 
 /**
  * Tells the reader when a newer build has been published.
@@ -23,7 +24,7 @@ object AppUpdateFeature : Feature {
 	override val title: String = "App update"
 
 	/** Upwards arrow: the thing you do with a newer version. */
-	override val glyph: String = "↑"
+	override val icon: String = AppIcons.APP_UPDATE
 
 	/**
 	 * On the rail, unlike the other tools.

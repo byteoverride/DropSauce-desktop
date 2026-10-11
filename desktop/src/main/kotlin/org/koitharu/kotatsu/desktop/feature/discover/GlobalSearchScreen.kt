@@ -2,17 +2,14 @@ package org.koitharu.kotatsu.desktop.feature.discover
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -20,12 +17,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -39,11 +37,24 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
+import org.koitharu.kotatsu.desktop.ui.AppIcon
+import org.koitharu.kotatsu.desktop.ui.AppIcons
+import org.koitharu.kotatsu.desktop.ui.ChipRow
+import org.koitharu.kotatsu.desktop.ui.CoverCard
+import org.koitharu.kotatsu.desktop.ui.EmptyBox
 import org.koitharu.kotatsu.desktop.ui.ErrorBox
+import org.koitharu.kotatsu.desktop.ui.LoadingStrip
+import org.koitharu.kotatsu.desktop.ui.NoticeBar
+import org.koitharu.kotatsu.desktop.ui.SectionHeader
+import org.koitharu.kotatsu.desktop.ui.Space
+import org.koitharu.kotatsu.desktop.ui.ThumbSize
 import org.koitharu.kotatsu.desktop.ui.onEnter
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
@@ -55,7 +66,6 @@ import org.koitharu.kotatsu.parsers.model.MangaParserSource
  * switching to the browse tab and back does not restart it. Results appear group by
  * group as sources answer; the screen is never blocked on the slowest one.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GlobalSearchScreen(
 	context: FeatureContext,
@@ -85,14 +95,15 @@ fun GlobalSearchScreen(
 
 	Column(modifier.fillMaxSize()) {
 		Row(
-			modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+			modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg, vertical = Space.sm),
 			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(8.dp),
+			horizontalArrangement = Arrangement.spacedBy(Space.sm),
 		) {
 			OutlinedTextField(
 				value = queryText,
 				onValueChange = { queryText = it },
 				label = { Text("Search every selected source, then press Enter") },
+				leadingIcon = { AppIcon(AppIcons.DISCOVER, contentDescription = null) },
 				singleLine = true,
 				modifier = Modifier.weight(1f).onEnter { submit(queryText) },
 			)
@@ -105,61 +116,61 @@ fun GlobalSearchScreen(
 			if (controller.isRunning) {
 				TextButton(onClick = { controller.stop() }) { Text("Stop") }
 			}
-			TextButton(onClick = { showSources = !showSources }) {
-				Text(if (showSources) "Hide sources" else "Sources (${selected.size})")
+			// Which sources are searched is the most consequential setting on this screen,
+			// so it is a control that names its own count rather than a link that reads
+			// like one more piece of chrome.
+			OutlinedButton(onClick = { showSources = true }) {
+				AppIcon(AppIcons.FILTER, contentDescription = null)
+				Spacer(Modifier.width(Space.xs))
+				Text(if (selected.size == 1) "1 source" else "${selected.size} sources")
 			}
 		}
 
 		if (selected.isEmpty()) {
-			Text(
-				text = "No sources selected. Open the source list and tick a few.",
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.error,
-				modifier = Modifier.padding(horizontal = 16.dp),
+			// Was `bodySmall` in the error colour with no icon and no container: a
+			// colour-only cue for the one state in which the screen cannot work at all,
+			// and with no way out of it.
+			NoticeBar(
+				text = "No sources are selected, so there is nothing to search.",
+				icon = AppIcons.WARNING,
+				action = {
+					TextButton(onClick = { showSources = true }) { Text("Choose sources") }
+				},
 			)
 		}
 
 		if (prefs.recentQueries.isNotEmpty()) {
-			FlowRow(
-				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-				horizontalArrangement = Arrangement.spacedBy(6.dp),
+			// Clear sits outside the chip flow rather than at the end of it. Twenty
+			// queries are kept, so inside the flow it would be the first thing the
+			// overflow swallowed, which is the one control that should never be behind
+			// the overflow of the list it clears.
+			Row(
+				modifier = Modifier.fillMaxWidth().padding(end = Space.lg),
+				verticalAlignment = Alignment.CenterVertically,
 			) {
-				Text(
-					text = "Recent",
-					style = MaterialTheme.typography.labelSmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.padding(top = 10.dp),
-				)
-				for (recent in prefs.recentQueries) {
-					FilterChip(
-						selected = false,
-						onClick = { submit(recent) },
-						label = { Text(recent, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-					)
+				ChipRow(label = "Recent", collapsedRows = 2, modifier = Modifier.weight(1f)) {
+					for (recent in prefs.recentQueries) {
+						FilterChip(
+							selected = false,
+							onClick = { submit(recent) },
+							label = { Text(recent, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+						)
+					}
 				}
 				TextButton(onClick = { uiScope.launch { store.clearHistory() } }) { Text("Clear") }
 			}
 		}
 
-		if (showSources) {
-			SourcePicker(
-				sources = selectableSources,
-				selected = selected,
-				onSelectedChange = onSelectedChange,
-			)
-			HorizontalDivider()
-		}
-
 		val state = controller.state
 		if (state == null) {
-			Box(Modifier.fillMaxSize()) {
-				Text(
-					text = "Type a title. Every selected source is asked at once and the " +
-						"answers arrive as they come.",
-					style = MaterialTheme.typography.bodyMedium,
-					modifier = Modifier.padding(24.dp),
-				)
-			}
+			EmptyBox(
+				headline = "Search every source at once",
+				detail = "Type a title and press Enter. " +
+					(if (selected.size == 1) "1 source is" else "${selected.size} sources are") +
+					" selected; each is asked at once and the answers arrive as they come.",
+				icon = AppIcons.DISCOVER,
+				action = { Button(onClick = { showSources = true }) { Text("Choose sources") } },
+			)
 		} else {
 			SearchResults(
 				context = context,
@@ -168,6 +179,18 @@ fun GlobalSearchScreen(
 				onRetry = { submit(state.query) },
 			)
 		}
+	}
+
+	if (showSources) {
+		// A modal rather than an inline panel: opening it used to push the results it was
+		// about down the screen, so the two things the user was comparing could not be on
+		// screen together.
+		SourcePickerDialog(
+			sources = selectableSources,
+			selected = selected,
+			onSelectedChange = onSelectedChange,
+			onClose = { showSources = false },
+		)
 	}
 }
 
@@ -188,50 +211,59 @@ private fun SearchResults(
 	val matched = groups.sumOf { it.ranked.shown.size }
 	val loose = groups.sumOf { it.ranked.hiddenCount }
 	val visibleGroups = if (showLoose) groups else groups.filter { it.ranked.shown.isNotEmpty() }
+	val summary = buildString {
+		val sources = groups.count { it.ranked.shown.isNotEmpty() }
+		append(matched)
+		append(if (matched == 1) " match from " else " matches from ")
+		append(sources)
+		append(if (sources == 1) " source" else " sources")
+		append("  ·  ")
+		append(state.settled)
+		append(" of ")
+		append(state.total)
+		append(" answered")
+		if (state.failed > 0) {
+			append("  ·  ")
+			append(state.failed)
+			append(" failed")
+		}
+	}
 
 	Column(Modifier.fillMaxSize()) {
-		ProgressBar(
-			fraction = state.progress(),
-			modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-		)
-		Row(
-			modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(8.dp),
-		) {
-			if (!state.isFinished) CircularProgressIndicator(modifier = Modifier.size(14.dp))
+		// A hand-drawn progress bar, a 14 dp spinner and the summary text were three
+		// stacked things reporting one fact. While sources are still answering that is a
+		// LoadingStrip; once they have all answered there is no progress left to report,
+		// so the summary stands on its own.
+		if (state.isFinished) {
 			Text(
-				text = buildString {
-					val sources = groups.count { it.ranked.shown.isNotEmpty() }
-					append(matched)
-					append(if (matched == 1) " match from " else " matches from ")
-					append(sources)
-					append(if (sources == 1) " source" else " sources")
-					append("  ·  ")
-					append(state.settled)
-					append(" of ")
-					append(state.total)
-					append(" answered")
-					if (state.failed > 0) {
-						append("  ·  ")
-						append(state.failed)
-						append(" failed")
-					}
-				},
+				text = summary,
 				style = MaterialTheme.typography.bodySmall,
-				modifier = Modifier.weight(1f),
+				modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg, vertical = Space.sm),
 			)
-			if (loose > 0) {
-				// Named and counted rather than silently dropped: a source that lists the
-				// title under a romanisation this cannot match is exactly the case where
-				// the user needs to see what was held back.
-				TextButton(onClick = { showLoose = !showLoose }) {
-					Text(if (showLoose) "Hide $loose unrelated" else "Show $loose unrelated")
+		} else {
+			LoadingStrip(label = summary, progress = state.progress())
+		}
+		if (loose > 0 || state.failed > 0) {
+			// On their own line rather than squeezed in beside the bar: this copy is
+			// precise about what is being withheld and must not be the thing that
+			// ellipsises when the window is narrow.
+			Row(
+				modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(Space.sm),
+			) {
+				if (loose > 0) {
+					// Named and counted rather than silently dropped: a source that lists
+					// the title under a romanisation this cannot match is exactly the case
+					// where the user needs to see what was held back.
+					TextButton(onClick = { showLoose = !showLoose }) {
+						Text(if (showLoose) "Hide $loose unrelated" else "Show $loose unrelated")
+					}
 				}
-			}
-			if (state.failed > 0) {
-				TextButton(onClick = { showFailures = !showFailures }) {
-					Text(if (showFailures) "Hide failures" else "Show failures")
+				if (state.failed > 0) {
+					TextButton(onClick = { showFailures = !showFailures }) {
+						Text(if (showFailures) "Hide failures" else "Show failures")
+					}
 				}
 			}
 		}
@@ -244,20 +276,19 @@ private fun SearchResults(
 				modifier = Modifier
 					.fillMaxWidth()
 					.heightIn(max = FAILURE_LIST_HEIGHT)
-					.verticalScroll(rememberScrollState())
-					.padding(horizontal = 16.dp),
+					.verticalScroll(rememberScrollState()),
 			) {
 				for (result in state.failures) {
 					val reason = (result.outcome as? SourceOutcome.Failed)?.message.orEmpty()
-					Text(
-						text = "${result.target.title}: $reason",
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.error,
-						modifier = Modifier.padding(vertical = 2.dp),
+					// The same shape a failure has everywhere else in the app, instead of
+					// a line of red text with nothing to say it is a failure but red.
+					ErrorBox(
+						message = "${result.target.title}: $reason",
+						compact = true,
 					)
 				}
 			}
-			HorizontalDivider(Modifier.padding(vertical = 6.dp))
+			HorizontalDivider(Modifier.padding(vertical = Space.sm))
 		}
 
 		when {
@@ -267,33 +298,28 @@ private fun SearchResults(
 				onRetry = onRetry,
 			)
 
-			state.isEmptyResult -> Box(Modifier.fillMaxSize()) {
-				Text(
-					text = "All ${state.total} sources answered and none of them has " +
-						"\"${state.query}\".",
-					style = MaterialTheme.typography.bodyMedium,
-					modifier = Modifier.padding(24.dp),
-				)
-			}
+			state.isEmptyResult -> EmptyBox(
+				headline = "Nothing found",
+				detail = "All ${state.total} sources answered and none of them has " +
+					"\"${state.query}\".",
+				icon = AppIcons.DISCOVER,
+			)
 
-			matched == 0 && loose > 0 && !showLoose -> Box(Modifier.fillMaxSize()) {
-				// The sources answered, but with rows that have no word in common with
-				// the query. Saying so beats both a wall of unrelated covers and a bare
-				// "nothing found" that contradicts the count above it.
-				Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-					Text(
-						text = "$loose ${if (loose == 1) "title came" else "titles came"} back, " +
-							"but none of them matches \"${state.query}\". Sources often widen a " +
-							"query that would otherwise return little.",
-						style = MaterialTheme.typography.bodyMedium,
-					)
-					TextButton(onClick = { showLoose = true }) { Text("Show them anyway") }
-				}
-			}
+			// The sources answered, but with rows that have no word in common with the
+			// query. Saying so beats both a wall of unrelated covers and a bare "nothing
+			// found" that contradicts the count above it.
+			matched == 0 && loose > 0 && !showLoose -> EmptyBox(
+				headline = "Nothing that matches \"${state.query}\"",
+				detail = "$loose ${if (loose == 1) "title came" else "titles came"} back, " +
+					"but none of them matches it. Sources often widen a query that would " +
+					"otherwise return little.",
+				icon = AppIcons.DISCOVER,
+				action = { Button(onClick = { showLoose = true }) { Text("Show them anyway") } },
+			)
 
 			else -> LazyColumn(
 				modifier = Modifier.fillMaxSize(),
-				contentPadding = PaddingValues(bottom = 24.dp),
+				contentPadding = PaddingValues(bottom = Space.xl),
 			) {
 				items(visibleGroups, key = { it.key }) { group ->
 					SourceGroup(
@@ -313,7 +339,7 @@ private fun SearchResults(
 							text = "Still asking ${state.total - state.settled} more",
 							style = MaterialTheme.typography.labelSmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.padding(16.dp),
+							modifier = Modifier.padding(Space.lg),
 						)
 					}
 				}
@@ -334,49 +360,80 @@ private fun SourceGroup(
 ) {
 	val source = remember(group.key) { sourceOf(group.key) }
 	Column(Modifier.fillMaxWidth()) {
-		Row(
+		// The whole header is the toggle, so the chevron carries no description of its
+		// own and the row says what tapping it will do. `heading()` is what lets a screen
+		// reader move group to group instead of row by row.
+		val toggleLabel = if (isCollapsed) "Expand ${group.title}" else "Collapse ${group.title}"
+		SectionHeader(
+			text = group.title,
+			count = items.size,
 			modifier = Modifier
-				.fillMaxWidth()
 				.clickable(onClick = onToggle)
-				.padding(horizontal = 16.dp, vertical = 8.dp),
-			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(8.dp),
-		) {
-			Text(if (isCollapsed) "▸" else "▾", style = MaterialTheme.typography.bodyMedium)
-			Text(group.title, style = MaterialTheme.typography.titleSmall)
-			Text(
-				text = if (group.ranked.hiddenCount > 0 && items.size == group.ranked.shown.size) {
-					"${items.size} of ${group.result.items.size}"
-				} else {
-					"${items.size}"
+				.semantics(mergeDescendants = true) {
+					heading()
+					contentDescription = toggleLabel
 				},
-				style = MaterialTheme.typography.labelMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
-		}
+			trailing = {
+				if (group.ranked.hiddenCount > 0 && items.size == group.ranked.shown.size) {
+					// The count alone would read as the whole answer. This source returned
+					// more and the rest is one toggle away.
+					Text(
+						text = "of ${group.result.items.size}",
+						style = MaterialTheme.typography.labelMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+				AppIcon(
+					name = if (isCollapsed) AppIcons.CHEVRON_RIGHT else AppIcons.EXPAND_MORE,
+					contentDescription = null,
+				)
+			},
+		)
 		if (!isCollapsed && source != null) {
 			val client = remember(source) { context.clientFor(source) }
 			LazyRow(
 				modifier = Modifier.fillMaxWidth(),
-				contentPadding = PaddingValues(horizontal = 16.dp),
-				horizontalArrangement = Arrangement.spacedBy(10.dp),
+				contentPadding = PaddingValues(horizontal = Space.lg),
+				horizontalArrangement = Arrangement.spacedBy(Space.md),
 			) {
 				itemsIndexed(items, key = { i, m -> "${m.id}-$i" }) { _, manga ->
 					CoverCard(
-						manga = manga,
+						title = manga.title,
+						coverUrl = manga.coverUrl,
 						client = client,
 						images = context.images,
 						onClick = { onOpen(source, manga) },
-						modifier = Modifier.width(STRIP_ITEM_WIDTH),
+						modifier = Modifier.width(ThumbSize.strip),
 					)
 				}
 			}
 		}
-		HorizontalDivider(Modifier.padding(top = 8.dp))
+		HorizontalDivider(Modifier.padding(top = Space.sm))
 	}
 }
 
 /** Tick the sources a global search covers. */
+@Composable
+private fun SourcePickerDialog(
+	sources: List<MangaParserSource>,
+	selected: Set<MangaParserSource>,
+	onSelectedChange: (Set<MangaParserSource>) -> Unit,
+	onClose: () -> Unit,
+) {
+	AlertDialog(
+		onDismissRequest = onClose,
+		title = { Text("Sources to search") },
+		text = {
+			SourcePicker(
+				sources = sources,
+				selected = selected,
+				onSelectedChange = onSelectedChange,
+			)
+		},
+		confirmButton = { TextButton(onClick = onClose) { Text("Done") } },
+	)
+}
+
 @Composable
 private fun SourcePicker(
 	sources: List<MangaParserSource>,
@@ -392,10 +449,13 @@ private fun SourcePicker(
 			sources.filter { it.title.lowercase().contains(needle) || it.locale.lowercase() == needle }
 		}
 	}
-	Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+	Column(
+		modifier = Modifier.fillMaxWidth(),
+		verticalArrangement = Arrangement.spacedBy(Space.sm),
+	) {
 		Row(
 			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(8.dp),
+			horizontalArrangement = Arrangement.spacedBy(Space.sm),
 		) {
 			OutlinedTextField(
 				value = filter,
@@ -422,6 +482,8 @@ private fun SourcePicker(
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 		}
+		// Not AppListRow: this is a checkbox list, and the row height that makes a
+		// navigable list readable would leave three sources visible out of six hundred.
 		LazyColumn(Modifier.fillMaxWidth().heightIn(max = SOURCE_PICKER_HEIGHT)) {
 			items(shown, key = { it.name }) { source ->
 				val isOn = source in selected
@@ -437,12 +499,18 @@ private fun SourcePicker(
 								},
 							)
 						}
-						.padding(vertical = 2.dp),
+						.padding(vertical = Space.xs),
 					verticalAlignment = Alignment.CenterVertically,
-					horizontalArrangement = Arrangement.spacedBy(8.dp),
+					horizontalArrangement = Arrangement.spacedBy(Space.sm),
 				) {
 					Checkbox(checked = isOn, onCheckedChange = null)
-					Text(source.title, style = MaterialTheme.typography.bodyMedium)
+					Text(
+						text = source.title,
+						style = MaterialTheme.typography.bodyMedium,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis,
+						modifier = Modifier.weight(1f),
+					)
 					Text(
 						text = source.locale,
 						style = MaterialTheme.typography.labelSmall,

@@ -87,13 +87,20 @@ Every claim below is from a file read or a capture looked at.
 
 ### Three numbers measured off the captures
 
-**The rail cannot fit its own contents.** In `shot-library-small.png` (1270×810 window,
-UI scale 1.5, image downscaled to 1100px wide) the rail label baselines are evenly
-pitched at 79 physical px, which is 52.7 dp per destination. Eleven destinations is
-11 × 79 = 869 px plus the 12 dp top spacer (`Main.kt:160`) = 887 px, against an 810 px
-window. Two destinations are unreachable today. At UI scale 2.0 the same eleven need
-1183 px and only seven fit. **Scrolling the rail is not a polish item, it is the
-difference between App update being reachable and not existing.**
+**The rail cannot fit its own contents.** `shot-library-small.png` is a 1270×810 window
+at UI scale 1.5, saved 1100 px wide, so image distances are multiplied by 1270/1100 =
+1.1545 to recover physical pixels. The rail's label baselines are evenly pitched — 79
+image px between every consecutive pair, seven times — which is **91 physical px, or 61
+dp per destination**. Eleven destinations is 11 × 91 = 1001 px plus the 12 dp top spacer
+(`Main.kt:160`, 18 px) = **1019 px against an 810 px window**. Eight and a half fit,
+which is exactly what the capture shows: nine labels with "Bookmarks" cut in half and
+Updates and App update absent. At UI scale 2.0 the same eleven need about 1366 px and six
+fit. **Scrolling the rail is not a polish item, it is the difference between App update
+being reachable and not existing.**
+
+The rail itself measures ~120 physical px wide in both the 1100 px and the 900 px
+captures, which is 80 dp at UI scale 1.5 — Material's standard `NavigationRail` width.
+That is 9.4% of a 1270 px window.
 
 **The reader's bottom bar needs about 1125 dp and has about 767 dp.** In `r2s.png` the
 bar's content area runs from the rail edge to the window edge, 767 dp at UI scale 1.5,
@@ -1199,8 +1206,8 @@ Two structural fixes over `Main.kt:157-216`.
 
 **It can scroll, so it cannot clip.** Today `NavigationRail { ... }` lays its children
 out in a `Column` with no scroll container, and section 0 measures the result: eleven
-destinations at 52.7 dp pitch need 887 px against an 810 px window, so two are
-unreachable, and at UI scale 2.0 four are. The fix is one line inside the rail's content:
+destinations at a 61 dp pitch need 1019 px against an 810 px window, so two are
+unreachable, and at UI scale 2.0 five are. The fix is one line inside the rail's content:
 the items go in a `Column(Modifier.weight(1f).verticalScroll(rememberScrollState()))`.
 `NavigationRail`'s content lambda is `ColumnScope`-receivered, so `weight(1f)` is
 available and the scrolling region takes whatever height is left.
@@ -1636,9 +1643,9 @@ highlights whichever root the stack happens to have started from. Open a title f
 Discover, start reading, and "Discover" stays lit while you read. That is not navigation
 state; it is a lie about where you are.
 
-**It costs the thing the app is for.** At UI scale 1.5 the rail is about 86 physical px,
-7% of a 1270 px window, subtracted from the reading surface on every page of every
-chapter. The strip is already narrowed to a percentage of what is left
+**It costs the thing the app is for.** The rail is 80 dp, which at UI scale 1.5 is 120
+physical px — 9.4% of a 1270 px window, subtracted from the reading surface on every page
+of every chapter. The strip is already narrowed to a percentage of what is left
 (`ReaderScreen.kt:578`), so the rail's width is taken before the reader's own width
 setting is applied and compounds with it.
 
@@ -2142,10 +2149,10 @@ against is a **fixed height containing text**, and these are the places it bites
 
 | element | at scale 2.0 | why it holds |
 |---|---|---|
-| navigation rail, 11 destinations | needs 1183 px in an 810 px window | the inner `verticalScroll` (3.10). Today four destinations are unreachable |
+| navigation rail, 11 destinations | needs ~1366 px in an 810 px window | the inner `verticalScroll` (3.10). Today five destinations are unreachable |
 | Library category chips | wrap to 2 rows, then collapse | `ChipRow`'s `FlowRow`. Today they are unreachable at **any** scale |
 | Library filter row | the pinned controls drop to their own line | the row is itself a `FlowRow` with two children, so it wraps instead of squeezing the chip flow to zero. No breakpoint |
-| Details action row | 2 buttons + icon ≈ 330 dp, against 635 dp | the `horizontalScroll` is no longer needed |
+| Details action row | 2 buttons + icon ≈ 330 dp, against 555 dp (the rail is still drawn here, 160 px at this scale) | the `horizontalScroll` is no longer needed |
 | Reader bottom bar | 332 dp against 635 dp, and 400 dp in an 800 px window | the only flexible element is `Spacer(weight(1f))`, so the gap closes before anything leaves. Today it is cut at the default scale |
 | Reader top chrome | back 48 + title `weight(1f)` + bookmark 48 | the title ellipsises; the buttons never move |
 | Sources grid | `Adaptive(240.dp)` resolves to 1 column | degrades to exactly today's layout rather than breaking |
@@ -2172,3 +2179,244 @@ item awkward to click, which is the right observation applied to the wrong fix: 
 `AppIcon` inside `NavigationRailItem`'s own 56 dp target solves it properly.
 
 ---
+
+## 7. Implementation order
+
+Packages do not share a file. The contract packages are marked and **must land before any
+other package starts** — not because of build order but because every other package
+imports from them.
+
+CLAUDE.md caps parallel agents at 5. The parallel packages below fit in two batches of
+four.
+
+### The shared contract — WP1, main agent only, nothing else runs during it
+
+After WP1 lands, these files are **frozen**. No other package may edit them. A package
+that needs a change here stops and asks, rather than editing and merging.
+
+**WP1a — tokens.** No behaviour change; the app looks different and does nothing new.
+
+| file | action |
+|---|---|
+| `desktop/src/main/resources/icons/*.svg` | new — 43 vendored Material Symbols Rounded files (2.3–2.5) |
+| `desktop/src/main/resources/icons/LICENSE` | new — Apache-2.0 attribution |
+| `README-DESKTOP.md` | edit — record the vendored icon source and licence |
+| `desktop/.../ui/Theme.kt` | new — both colour schemes, `DropSauceReaderColors`, `Space`, `ThumbSize`, `COVER_ASPECT` (1.12) |
+| `desktop/.../ui/AppIcons.kt` | new — the icon-name constants |
+| `desktop/.../Main.kt` | edit — line 103 only, to use the new schemes |
+| `desktop/src/test/.../ui/ThemeContrastTest.kt` | new — every pair in 1.5, with a positive control |
+| `desktop/src/test/.../ui/AppIconsTest.kt` | new — every name resolves, with a positive control |
+
+**WP1b — shared components.**
+
+| file | action |
+|---|---|
+| `desktop/.../ui/Common.kt` | edit — `TopBar` (3.1), `ErrorBox` (3.7), `LoadingBox` + `LoadingStrip` (3.8), new `EmptyBox` (3.6), `SectionHeader` (3.5), `AppListRow` (3.4), `NoticeBar` (4.1), `AppIcon` (2.6), `Modifier.focusRing` (6.1). `RemoteImage` and `onEnter` unchanged |
+| `desktop/.../ui/Covers.kt` | new — `CoverCard`, `CoverBadge`, `CoverBadgeTone` (3.3) |
+| `desktop/.../ui/Chips.kt` | new — `ChipRow` (3.9) |
+
+**WP1c — the navigation contract.** This is the one that touches many files, all
+one-line edits.
+
+| file | action |
+|---|---|
+| `desktop/.../feature/FeatureContext.kt` | edit — add `Feature.icon: String`, remove `Feature.glyph` |
+| `feature/{appupdate/AppUpdateFeature, curate/CurateFeature, discover/DiscoverFeature, download/DownloadFeature, local/LocalFeature, localx/LocalxFeature, migration/MigrationFeature, readerx/ReaderExtrasFeature, reading/ReadingFeatures, scrobbling/ScrobblingFeature, suggestions/SuggestionsFeature, sync/Features}.kt` | edit — `override val glyph` → `override val icon`, one line each, **no other change to these files** |
+| `desktop/.../ui/NavRail.kt` | new — `AppNavRail`, `NavDestination`, `NavGroup` (3.10) |
+| `desktop/.../Main.kt` | edit — `ROOTS` becomes `NavDestination`s; `NavRail` deleted; the rail is not drawn for `Screen.Reader` / `Screen.LocalReader` (4.4); `BackToSettings` uses `ic_chevron_left` |
+| `desktop/src/test/.../ui/NavigationLayoutTest.kt` | edit — unchanged assertions, plus one that every `Feature.icon` resolves to a vendored file |
+
+Two of those twelve files also contain screens — `DiscoverFeature.kt` (holds
+`DiscoverRoot` and `SourceList`) and `ReaderExtrasFeature.kt` (holds `ReaderExtrasScreen`).
+WP1c changes **only the `glyph` line** in each. WP5 and WP9 own the rest of those files
+and run afterwards, so there is no overlap in time.
+
+**Gate before anything else starts:** `./gradlew :desktop:test` green,
+`./gradlew :app:assembleDebug` green, `:desktop:run` opens and the rail scrolls.
+
+---
+
+### Batch A — the five reworked screens. Four agents, no shared files.
+
+**WP2 — Library and Details.**
+`ui/LibraryScreen.kt`, `ui/DetailsScreen.kt`.
+These two are one package because `CategoryNameDialog` is declared in `LibraryScreen.kt`
+(`:609`) and called from `DetailsScreen.kt` (`:322`); splitting them would put two agents
+on one symbol. Sections 4.1 and 4.3, plus the unbounded-dialog fix in 6.5.
+
+**WP3 — Sources, History, Browse.**
+`ui/CatalogScreen.kt`, `ui/HistoryScreen.kt`, `ui/BrowseScreen.kt`.
+Section 4.2 for the catalogue; History and Browse are tokens-and-components only
+(`AppListRow`, `CoverCard`, `EmptyBox`, `ErrorBox`). `BrowseScreen.kt`'s own `CoverCard`
+copy and `COVER_ASPECT` are deleted here.
+
+**WP4 — the reader.**
+`ui/ReaderScreen.kt`.
+Section 4.4 in full: the local theme, the `Box` restructure, auto-hide, the new bottom
+bar, the Display popup, all eleven hardcoded colours. The bookmark toggle is already a
+slot (`ReaderScreen.kt:417`), so this package does not touch `feature/reading/`.
+
+**WP5 — Discover.**
+`feature/discover/**` — `DiscoverFeature.kt`, `GlobalSearchScreen.kt`,
+`SourceBrowseScreen.kt`, `FilterPanel.kt`, `DiscoverCommon.kt`.
+Section 4.5. `DiscoverCommon.kt`'s `CoverCard`, `ProgressBar`, `COVER_ASPECT` and
+`STRIP_ITEM_WIDTH` are deleted in favour of the WP1 versions; the file may end up empty
+and be removed.
+
+**After batch A:** integrate, `:desktop:test`, `:app:assembleDebug`, run the app, commit.
+
+---
+
+### Batch B — tokens and shared components everywhere else. Four agents.
+
+**WP6 — reading and curate.**
+`feature/reading/**` (`BookmarksScreen.kt`, `StatsScreen.kt`, `ReadingFeatures.kt`),
+`feature/curate/**` (`CurateScreen.kt`).
+Includes the `BookmarkToggle` restyle WP4's chrome depends on, and the three
+`horizontalScroll` chip rows in `CurateScreen.kt`. `StatsScreen.kt`'s chart
+`LinearProgressIndicator` and its `Canvas` are left alone (5.3).
+
+**WP7 — local, localx, download.**
+`feature/local/**`, `feature/localx/**`, `feature/download/**`.
+Four `TopBar`s in `LocalxScreen.kt` alone, two grid implementations, the unsized
+thumbnail at `LocalxScreen.kt:543`, and the "chapter could not be read" text rendered as
+body copy.
+
+**WP8 — sync, migration, suggestions.**
+`feature/sync/**`, `feature/migration/**`, `feature/suggestions/**`.
+Deletes `FeatureHeader` (`SyncUi.kt:132`) and the second `ProgressBar` copy
+(`SuggestionsScreen.kt:282`). Fixes the empty state rendered as an error
+(`MigrationScreen.kt:120`), the uncoloured run failure (`UpdatesScreen.kt:165`) and the
+failure rendered as a hint (`SuggestionsScreen.kt:163`). `RelatedTitles.kt`'s
+`STRIP_ITEM_WIDTH` duplicate is deleted here.
+
+**WP9 — scrobbling, appupdate, readerx, settings.**
+`feature/scrobbling/**`, `feature/appupdate/**`, `feature/readerx/**`,
+`ui/SettingsScreen.kt`.
+Deletes `TrackingHeader` (`TrackingUi.kt:36`) and the dead `TrackingEmptyNote`
+(`TrackingUi.kt:61`). Fixes the two unhandled chip rows in `SettingsScreen.kt` and the
+unbounded branch chip row in `TitlePrefsEditor.kt`. `ColorFilterEditor.kt`'s five literal
+colours and `TapZoneEditor.kt`'s four **stay** — those are a colour-filter preview and
+semantic zone tints, which are data, not theme.
+
+**After batch B:** integrate, `:desktop:test`, `:app:assembleDebug`, run at UI scale 1.0,
+1.5 and 2.0, commit.
+
+---
+
+### Three things to compile before trusting them
+
+Each of these is an assumption in this spec that a build will confirm or refute. None is
+load bearing on the design; each has a stated fallback.
+
+1. **`TopBar` gaining `modifier` as its second parameter.** Source-compatible only if all
+   19 call sites use named arguments. If any is positional, `modifier` goes last instead
+   and the Compose convention loses. *(WP1b)*
+2. **`LoadingStrip` using the real `LinearProgressIndicator`.** The comment at
+   `DiscoverCommon.kt:64-67` says the overload set is ambiguous with every optional
+   parameter omitted. Passing `progress` as an explicit lambda is what
+   `LibraryScreen.kt:372`, `UpdatesScreen.kt:151` and `DownloadsScreen.kt:196` already do
+   successfully, so it should resolve. If it does not, the two-box drawing moves inside
+   `LoadingStrip` and lives there once instead of twice. **Do not delete the hand-drawn
+   copies until this compiles.** *(WP1b, then WP5 and WP8)*
+3. **Nesting `MaterialExpressiveTheme` inside the reader.** `motionScheme` must be passed
+   through explicitly or `MotionScheme.expressive()` is silently lost inside the reader —
+   which is the exact class of regression D6a exists to detect, so it is worth asserting
+   rather than eyeballing. *(WP4)*
+
+---
+
+## 8. What was cut, and what needs an answer
+
+### Cut, with reasons
+
+| cut | why |
+|---|---|
+| Content-type and language filter chips on Sources | the data exists on `MangaParserSource` and it would help a 658-item list a great deal, but it is a **new feature** and the brief puts those out of scope. Raised as a question below rather than smuggled in |
+| A "sources you already read" section at the top of the catalogue | same: the computation already exists at `DiscoverFeature.kt:267-271`, but wiring it into the catalogue is new behaviour |
+| A filter or sort control on the Details chapter list | new feature. A 105-chapter list wants one; that is a separate decision |
+| A grid/list view toggle outside Organise | new feature. Organise already has one; nothing else needs one yet |
+| Custom typography or a bundled font | would be a new dependency or a new asset class, and `MaterialTheme.typography` is not the problem — how it is applied was |
+| A light-theme reader | deliberately refused. `ReaderScreen.kt:284` is right that a manga page belongs on black, and D22's webtoon-only strip makes a pale surround worse, not better |
+| Wiring up the colour filter and tap zones | `DECISIONS.md` lists these as built-but-not-connected, and D22 notes tap zones are largely moot for a scrolling reader. Feature work, not design work |
+| A reduced-motion setting | there is no platform signal to read on Linux desktop here, and the motion set in 1.11 is six fast specs with nothing decorative and nothing looping. If a setting is added later it switches every one of them to a snap |
+| Empty-state illustrations | a new asset class beyond the icon set, and an icon plus a headline does the job |
+
+### Questions that need you
+
+1. **The reader hiding the navigation rail.** The argument is in 4.4 and I do not think it
+   contradicts D26, but D26 is yours and the reading is a judgement. If you want the rail
+   to stay, the bottom-bar fix and the Back demotion still stand on their own and nothing
+   else in 4.4 depends on it.
+2. **Demoting Start over, Download and Other sources to an overflow menu on Details.**
+   D27 says Other sources must be *offered whenever the details screen is open*, and an
+   always-present menu satisfies that, with the two failure states still promoting it to
+   a first-class button. Confirm you read D27 the same way.
+3. **The Library length filter as a menu rather than seven chips.** This trades
+   discoverability for a whole row of vertical space and for never clipping. It is the
+   one change in 4.1 I would most expect you to push back on.
+4. **Removing `Feature.glyph` rather than deprecating it beside `icon`.** Removal touches
+   twelve files for one line each. Keeping both means a new area can still ship a glyph
+   and nobody notices, which is how the rail reached eighteen destinations.
+5. **A warm sand tertiary instead of Material's lavender default.** Reasoning in 1.1. If
+   you would rather stay on the TonalSpot default, the generated values are
+   `#CAC1ED` / `#484267` dark and `#605980` / `#E5DEFF` light, and they clear the same
+   thresholds — they just look like the purple being removed.
+6. **Deleting `FeatureHeader` and `TrackingHeader`.** Both carry comments defending the
+   duplication as feature independence. That independence mattered while five agents were
+   building five areas at once; it is now three copies of a header that will drift.
+7. **The two out-of-scope Sources additions in the table above.** Both are cheap and both
+   are the highest-value things that could be done to that screen. Say the word and they
+   become a sixth package.
+
+### Flagged as uncertain rather than asserted
+
+- **The rail's 61 dp item pitch** was measured off a capture downscaled from 1270 px to
+  1100 px, by reading label baselines and multiplying by 1.1545. The spacing is very
+  regular (79 image px between every consecutive pair, seven times) and the result is
+  consistent with Material's 56 dp item plus padding, but the derived "~1366 px at UI
+  scale 2.0" should be re-measured in the running app before anyone quotes it.
+  I got this wrong once already by forgetting the downscale factor and reporting 52.7 dp;
+  the conclusion survived the correction but the number did not, which is the reason it
+  is flagged here. The conclusion does not depend on precision: at any plausible pitch,
+  eleven destinations do not fit in 810 px and the rail needs to scroll.
+- **The reader bar's ~1125 dp requirement** is a sum of the widths visible in `r2s.png`
+  plus the declared widths of the controls that were cut off (`Modifier.width(150.dp)`
+  twice, `widthIn(min = 76.dp)` once, plus button and gap estimates). The cut-off itself
+  is directly observed; the total is an estimate. Again the conclusion does not depend on
+  it — the bar is demonstrably cut at the default window size and default scale.
+- **The Material Symbols FILL axis** is a weak shape cue on `search` and `history`. The
+  rail's conformance claim rests on the 1 dp indicator stroke, not on the icon swap
+  (1.6).
+- **`CatalogScreen.kt:43`** has a `remember(query)` that reads `all` without keying on it.
+  Not reachable today because `selectRoot` recreates the screen, but it is a trap if the
+  catalogue ever stops being a root. Noted for whoever implements WP3; not a design item.
+
+---
+
+## Appendix: how the colour numbers were produced
+
+Not by eye and not from memory. A script converted sRGB to CIELAB (D65, the standard
+matrices), generated each tonal ramp at a fixed Lab hue with chroma clamped to the sRGB
+gamut by 60-step bisection, mapped tones onto Material 3's role assignments, and computed
+every ratio with the WCAG 2.x relative-luminance formula. Inputs that were measured
+rather than chosen:
+
+```
+#64D2FF  ->  L* 79.62   C* 36.54   h 239.35      (the brand seed)
+#1A1A1A  ->  L*  9.26                            (the icon's ground)
+#FF0000  ->                        h  40.00      (the error palette's hue)
+```
+
+Maximum in-gamut chroma at the seed hue, which is why the ramps are clamped per tone:
+
+```
+L*10: 12.6   L*20: 17.5   L*30: 22.4   L*40: 27.2   L*50: 32.1
+L*60: 37.0   L*70: 41.8   L*80: 35.9   L*90: 17.8
+```
+
+Every hex in sections 1.2, 1.3 and 1.4 and every ratio in 1.5 came out of that run.
+`ThemeContrastTest` (WP1a) recomputes the ratios from the `ColorScheme` objects
+themselves, so the tables and the shipped code cannot drift apart unnoticed — and it
+carries a deliberately failing fixture so the assertion is proven to fire before it is
+trusted.

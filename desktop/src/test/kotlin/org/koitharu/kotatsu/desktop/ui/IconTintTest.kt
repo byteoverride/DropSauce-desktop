@@ -25,7 +25,7 @@ class IconTintTest {
 	@Test
 	fun `a vendored icon renders in the colour it is tinted with`() {
 		val density = Density(1f)
-		val painter = javaClass.classLoader.getResourceAsStream("icons/download.svg")!!
+		val painter = javaClass.classLoader.getResourceAsStream(AppIcons.filePath(AppIcons.DOWNLOADS))!!
 			.use { loadSvgPainter(it, density) }
 		assertEquals(24f, painter.intrinsicSize.width)
 

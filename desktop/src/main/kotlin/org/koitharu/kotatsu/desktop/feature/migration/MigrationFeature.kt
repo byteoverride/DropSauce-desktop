@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import org.koitharu.kotatsu.desktop.feature.Feature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
+import org.koitharu.kotatsu.desktop.ui.AppIcons
 
 /**
  * How the migration area plugs into the shell.
@@ -26,8 +27,8 @@ object MigrationFeature : Feature {
 
 	override val title: String = "Migrate"
 
-	/** Rightwards arrow with corners: moving a thing from one place to another. */
-	override val glyph: String = "⇄"
+	/** The wrench: this screen is for repairing library entries, not for browsing. */
+	override val icon: String = AppIcons.FIX_SOURCES
 
 	override val isTopLevel: Boolean = false
 

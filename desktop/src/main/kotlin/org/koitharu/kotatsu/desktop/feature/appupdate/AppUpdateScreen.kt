@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -22,8 +23,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import org.koitharu.kotatsu.desktop.ui.AppIcons
+import org.koitharu.kotatsu.desktop.ui.LoadingStrip
+import org.koitharu.kotatsu.desktop.ui.NoticeBar
+import org.koitharu.kotatsu.desktop.ui.NoticeTone
+import org.koitharu.kotatsu.desktop.ui.Space
 import org.koitharu.kotatsu.desktop.ui.TopBar
 import java.awt.Desktop
 import java.net.URI
@@ -59,27 +64,34 @@ fun AppUpdateScreen(repository: AppUpdateRepository) {
 				) { Text(if (checking) "Checking" else "Check now") }
 			},
 		)
+		// Vertical padding only: LoadingStrip carries the screen gutter itself, so the
+		// bar lines up with the paragraph below it instead of starting 16 dp further in.
 		Column(
-			modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-			verticalArrangement = Arrangement.spacedBy(12.dp),
+			modifier = Modifier
+				.fillMaxSize()
+				.verticalScroll(rememberScrollState())
+				.padding(vertical = Space.lg),
+			verticalArrangement = Arrangement.spacedBy(Space.md),
 		) {
 			val release = update
 			when {
-				release != null -> UpdateCard(release)
+				release != null -> UpdateCard(
+					release = release,
+					modifier = Modifier.padding(horizontal = Space.lg),
+				)
 
 				// "Nothing newer" and "nobody has looked" read the same on screen and are
-				// not the same fact, so the second one says so.
-				checking || !checked -> Text(
-					"Checking for a newer version.",
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
+				// not the same fact, so the second one says so. It is also a wait, not a
+				// statement, and a sentence sitting still for several seconds does not
+				// say that a request is in flight.
+				checking || !checked -> LoadingStrip(label = "Checking for a newer version")
 
 				else -> Text(
 					"${AppBuild.version} is the newest release. " +
 						"Checked once when the app started; Check now asks again.",
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.padding(horizontal = Space.lg),
 				)
 			}
 			Text(
@@ -88,6 +100,7 @@ fun AppUpdateScreen(repository: AppUpdateRepository) {
 					"stays yours to run.",
 				style = MaterialTheme.typography.labelMedium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.padding(horizontal = Space.lg),
 			)
 		}
 	}
@@ -96,15 +109,25 @@ fun AppUpdateScreen(repository: AppUpdateRepository) {
 @Composable
 private fun UpdateCard(
 	release: AppRelease,
+	modifier: Modifier = Modifier,
 	/** A parameter so the Windows wording can be rendered and asserted from Linux. */
 	hostPackage: HostPackage = HostPackage.forHost(),
 ) {
-	Card(Modifier.fillMaxWidth()) {
+	// The link that could not be handed over, if one could not. Both buttons write here,
+	// because either of them can be the one that finds no browser.
+	var unopened: String? by remember(release.url) { mutableStateOf(null) }
+	Card(modifier.fillMaxWidth()) {
+		// Vertical padding only, so the notice below can supply the gutter itself and
+		// still line up with the title above it.
 		Column(
-			modifier = Modifier.padding(16.dp),
-			verticalArrangement = Arrangement.spacedBy(10.dp),
+			modifier = Modifier.padding(vertical = Space.md),
+			verticalArrangement = Arrangement.spacedBy(Space.sm),
 		) {
-			Text(release.title, style = MaterialTheme.typography.titleLarge)
+			Text(
+				text = release.title,
+				style = MaterialTheme.typography.titleLarge,
+				modifier = Modifier.padding(horizontal = Space.lg),
+			)
 			Text(
 				text = buildString {
 					append("Version ${release.version}")
@@ -115,6 +138,7 @@ private fun UpdateCard(
 				},
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.padding(horizontal = Space.lg),
 			)
 			if (release.notes.isNotBlank()) {
 				Text(
@@ -122,14 +146,37 @@ private fun UpdateCard(
 					style = MaterialTheme.typography.bodyMedium,
 					maxLines = 40,
 					overflow = TextOverflow.Ellipsis,
+					modifier = Modifier.padding(horizontal = Space.lg),
 				)
 			}
 			val download = release.downloadUrl
-			Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+			Row(
+				modifier = Modifier.padding(horizontal = Space.lg),
+				horizontalArrangement = Arrangement.spacedBy(Space.sm),
+			) {
 				if (download != null) {
-					Button(onClick = { browse(download) }) { Text("Download the package") }
+					Button(
+						onClick = { unopened = if (browse(download)) null else download },
+					) { Text("Download the package") }
 				}
-				OutlinedButton(onClick = { browse(release.url) }) { Text("Release notes") }
+				OutlinedButton(
+					onClick = { unopened = if (browse(release.url)) null else release.url },
+				) { Text("Release notes") }
+			}
+			unopened?.let { url ->
+				// The old comment here claimed a failure cost the reader a click because
+				// "the link is on screen either way". It was not: nothing on this screen
+				// ever printed a URL, so pressing the button on a session with no browse
+				// handler did nothing at all and said nothing. Now it says so, and the
+				// address is selectable so the click it costs is a copy and paste.
+				SelectionContainer {
+					NoticeBar(
+						text = "Could not open a browser for this. Copy the address instead: $url",
+						icon = AppIcons.ERROR,
+						tone = NoticeTone.Problem,
+						onDismiss = { unopened = null },
+					)
+				}
 			}
 			Text(
 				text = if (download != null) {
@@ -141,21 +188,27 @@ private fun UpdateCard(
 				},
 				style = MaterialTheme.typography.labelMedium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.padding(horizontal = Space.lg),
 			)
 		}
 	}
 }
 
 /**
- * Hands a link to the desktop environment.
+ * Hands a link to the desktop environment, and says whether that worked.
  *
- * Silent when there is no browse support, which is the case on a bare session. The link
- * is on screen either way, so a failure here costs the reader a click, not the update.
+ * It used to swallow both the unsupported case and the thrown one and return nothing, so
+ * a bare session with no browse handler gave the reader a button that did nothing. The
+ * caller now has something to show.
  */
-private fun browse(url: String) {
-	runCatching {
-		if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-			Desktop.getDesktop().browse(URI(url))
-		}
+private fun browse(url: String): Boolean = runCatching {
+	// getDesktop() itself throws on a headless JVM, so the whole lookup is inside the
+	// catch rather than only the browse call.
+	val desktop = if (Desktop.isDesktopSupported()) Desktop.getDesktop() else null
+	if (desktop?.isSupported(Desktop.Action.BROWSE) != true) {
+		false
+	} else {
+		desktop.browse(URI(url))
+		true
 	}
-}
+}.getOrDefault(false)

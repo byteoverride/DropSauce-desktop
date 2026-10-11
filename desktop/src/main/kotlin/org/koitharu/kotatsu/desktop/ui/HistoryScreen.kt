@@ -1,21 +1,12 @@
 package org.koitharu.kotatsu.desktop.ui
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,11 +14,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.koitharu.kotatsu.desktop.library.HistoryItem
 import org.koitharu.kotatsu.parsers.model.Manga
@@ -51,17 +39,16 @@ fun HistoryScreen(state: AppState, onOpen: (MangaParserSource, Manga) -> Unit) {
 			},
 		)
 		if (items.isEmpty()) {
-			Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-				Text(
-					"Nothing read yet.",
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-			}
+			EmptyBox(
+				headline = "Nothing read yet.",
+				detail = "A title shows up here once you have opened a chapter, with the page you got to.",
+			)
 		} else {
 			LazyColumn(Modifier.fillMaxSize()) {
 				items(items, key = { it.manga.id }) { item ->
 					HistoryRow(item = item, state = state, onOpen = onOpen)
+					// Decoration now, not structure: the row's own height and hover state
+					// carry the separation. See UI_SPEC 1.6.
 					HorizontalDivider()
 				}
 			}
@@ -78,41 +65,27 @@ private fun HistoryRow(
 	val source = remember(item.sourceName) {
 		MangaParserSource.entries.firstOrNull { it.name == item.sourceName }
 	}
-	Row(
-		modifier = Modifier
-			.fillMaxWidth()
-			.clickable(enabled = source != null) { source?.let { onOpen(it, item.manga) } }
-			.padding(horizontal = 16.dp, vertical = 10.dp),
-		horizontalArrangement = Arrangement.spacedBy(12.dp),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		RemoteImage(
-			url = item.manga.coverUrl,
-			client = remember(source) {
-				source?.let { state.sources.session(it).client } ?: okhttp3.OkHttpClient()
-			},
-			cache = state.images,
-			contentDescription = item.manga.title,
-			modifier = Modifier.width(48.dp).height(68.dp).clip(RoundedCornerShape(6.dp)),
-		)
-		Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-			Text(
-				text = item.manga.title,
-				style = MaterialTheme.typography.bodyLarge,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis,
+	AppListRow(
+		headline = item.manga.title,
+		// A title whose source is no longer in the catalogue cannot be opened, so the row
+		// has no click rather than a click that does nothing.
+		onClick = if (source != null) {
+			{ onOpen(source, item.manga) }
+		} else {
+			null
+		},
+		meta = listOf(item.sourceName, "page ${item.page + 1}"),
+		leading = {
+			RemoteImage(
+				url = item.manga.coverUrl,
+				client = remember(source) {
+					source?.let { state.sources.session(it).client } ?: okhttp3.OkHttpClient()
+				},
+				cache = state.images,
+				contentDescription = item.manga.title,
+				modifier = Modifier.size(ThumbSize.list).clip(MaterialTheme.shapes.small),
 			)
-			Text(
-				text = "${item.sourceName}  ·  page ${item.page + 1}",
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
-			if (item.percent > 0f) {
-				LinearProgressIndicator(
-					progress = { item.percent.coerceIn(0f, 1f) },
-					modifier = Modifier.fillMaxWidth(),
-				)
-			}
-		}
-	}
+		},
+		progress = item.percent.takeIf { it > 0f }?.coerceIn(0f, 1f),
+	)
 }

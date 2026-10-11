@@ -2,26 +2,20 @@ package org.koitharu.kotatsu.desktop.feature.curate
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Checkbox
@@ -49,7 +43,16 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
+import org.koitharu.kotatsu.desktop.ui.AppIcons
+import org.koitharu.kotatsu.desktop.ui.AppListRow
+import org.koitharu.kotatsu.desktop.ui.ChipRow
+import org.koitharu.kotatsu.desktop.ui.CoverCard
+import org.koitharu.kotatsu.desktop.ui.EmptyBox
+import org.koitharu.kotatsu.desktop.ui.META_SEPARATOR
+import org.koitharu.kotatsu.desktop.ui.NoticeBar
 import org.koitharu.kotatsu.desktop.ui.RemoteImage
+import org.koitharu.kotatsu.desktop.ui.Space
+import org.koitharu.kotatsu.desktop.ui.ThumbSize
 import org.koitharu.kotatsu.desktop.ui.TopBar
 import org.koitharu.kotatsu.shared.db.FavouriteCategoryEntity
 
@@ -113,22 +116,22 @@ fun CurateScreen(context: FeatureContext, navigator: FeatureNavigator) {
 			title = "Organise",
 			subtitle = subtitleFor(visible.size, allItems.size, selection.size, duplicates.size),
 			trailing = {
-				Row(verticalAlignment = Alignment.CenterVertically) {
-					Text("Incognito", style = MaterialTheme.typography.labelLarge)
-					Switch(
-						checked = prefs.incognito,
-						onCheckedChange = { enabled ->
-							scope.launch {
-								incognito.setGlobal(enabled)
-								status = if (enabled) {
-									"Incognito on. Nothing you read is recorded."
-								} else {
-									"Incognito off. Reading is recorded again."
-								}
+				// Straight into the bar's own Row: it centres and spaces its children
+				// already, so the wrapper this used to carry was a second gap rule.
+				Text("Incognito", style = MaterialTheme.typography.labelLarge)
+				Switch(
+					checked = prefs.incognito,
+					onCheckedChange = { enabled ->
+						scope.launch {
+							incognito.setGlobal(enabled)
+							status = if (enabled) {
+								"Incognito on. Nothing you read is recorded."
+							} else {
+								"Incognito off. Reading is recorded again."
 							}
-						},
-					)
-				}
+						}
+					},
+				)
 			},
 		)
 		CategoryRow(
@@ -252,19 +255,11 @@ fun CurateScreen(context: FeatureContext, navigator: FeatureNavigator) {
 			)
 		}
 		status?.let { message ->
-			Row(
-				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-			) {
-				Text(
-					text = message,
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.weight(1f),
-				)
-				TextButton(onClick = { status = null }) { Text("Dismiss") }
-			}
+			// The outcome of a batch is something to acknowledge, not a failure, so it is
+			// a notice. It used to be a bare line of text with a "Dismiss" text button,
+			// which gave the one container in the app that reports what just changed to
+			// many rows no container at all.
+			NoticeBar(text = message, onDismiss = { status = null })
 		}
 		HorizontalDivider()
 		when {
@@ -273,14 +268,17 @@ fun CurateScreen(context: FeatureContext, navigator: FeatureNavigator) {
 				onMerge = { mergeTarget = it },
 			)
 
-			allItems.isEmpty() -> EmptyState(
-				"Nothing saved yet.",
-				"Save titles from Sources and they show up here to sort, tidy and de-duplicate.",
+			allItems.isEmpty() -> EmptyBox(
+				headline = "Nothing saved yet.",
+				detail = "Save titles from Sources and they show up here to sort, tidy and de-duplicate.",
 			)
 
-			visible.isEmpty() -> EmptyState(
-				"Nothing in this category.",
-				"Pick another category, or add titles to this one from a selection.",
+			visible.isEmpty() -> EmptyBox(
+				headline = "Nothing in this category.",
+				detail = "Pick another category, or add titles to this one from a selection.",
+				// The library is not empty, the filter is: the same icon the library uses
+				// when its own chapter filter matches nothing.
+				icon = AppIcons.FILTER,
 			)
 
 			prefs.view == LibraryViewMode.LIST -> CurateList(
@@ -336,7 +334,7 @@ fun CurateScreen(context: FeatureContext, navigator: FeatureNavigator) {
 				} else {
 					Column(
 						modifier = Modifier.heightIn(max = 320.dp),
-						verticalArrangement = Arrangement.spacedBy(4.dp),
+						verticalArrangement = Arrangement.spacedBy(Space.xs),
 					) {
 						for (category in choices) {
 							OutlinedButton(
@@ -391,7 +389,7 @@ private fun subtitleFor(visible: Int, total: Int, selected: Int, duplicateGroups
 		if (duplicateGroups > 0) {
 			add("$duplicateGroups possible ${plural(duplicateGroups, "duplicate", "duplicates")}")
 		}
-	}.joinToString(" · ")
+	}.joinToString(META_SEPARATOR)
 
 @Composable
 private fun CategoryRow(
@@ -399,14 +397,10 @@ private fun CategoryRow(
 	selected: Long?,
 	onSelect: (Long?) -> Unit,
 ) {
-	Row(
-		modifier = Modifier
-			.fillMaxWidth()
-			.horizontalScroll(rememberScrollState())
-			.padding(horizontal = 16.dp, vertical = 4.dp),
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
+	// Was a horizontalScroll Row. The category list is as long as the reader made it, so
+	// the last categories were clipped with nothing to say they existed and no way to
+	// reach them but a drag. ChipRow wraps and collapses instead.
+	ChipRow {
 		FilterChip(
 			selected = selected == null,
 			onClick = { onSelect(null) },
@@ -432,19 +426,10 @@ private fun SortRow(
 	showDuplicates: Boolean,
 	onToggleDuplicates: () -> Unit,
 ) {
-	Row(
-		modifier = Modifier
-			.fillMaxWidth()
-			.horizontalScroll(rememberScrollState())
-			.padding(horizontal = 16.dp, vertical = 4.dp),
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		Text(
-			text = "Sort",
-			style = MaterialTheme.typography.labelLarge,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-		)
+	// The 8 dp spacer that used to separate the sort chips from the view chips is gone
+	// rather than ported: in a flow a spacer is one of the row's items, so the collapse
+	// indicator would count it and offer "+N more" for a gap.
+	ChipRow(label = "Sort") {
 		for (key in LibrarySortKey.entries) {
 			FilterChip(
 				selected = key == prefs.sort,
@@ -457,7 +442,6 @@ private fun SortRow(
 			// The glyph shows the direction the list currently runs in, not the action.
 			label = { Text(if (prefs.descending) "Reversed" else "Normal") },
 		)
-		Box(Modifier.width(8.dp))
 		for (mode in LibraryViewMode.entries) {
 			FilterChip(
 				selected = mode == prefs.view,
@@ -484,8 +468,8 @@ private fun SelectionBar(
 	onClear: () -> Unit,
 ) {
 	Row(
-		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg, vertical = Space.xs),
+		horizontalArrangement = Arrangement.spacedBy(Space.sm),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		OutlinedButton(onClick = onSelectAll, enabled = visible.isNotEmpty()) {
@@ -512,21 +496,24 @@ private fun ActionBar(
 	onIncognito: (Boolean) -> Unit,
 ) {
 	Column(
+		// No horizontal padding here any more: the label carries its own gutter and
+		// ChipRow brings its own, so the two would otherwise stack to 32 dp.
 		modifier = Modifier
 			.fillMaxWidth()
 			.background(MaterialTheme.colorScheme.surfaceVariant)
-			.padding(horizontal = 16.dp, vertical = 8.dp),
-		verticalArrangement = Arrangement.spacedBy(6.dp),
+			.padding(vertical = Space.sm),
+		verticalArrangement = Arrangement.spacedBy(Space.xs),
 	) {
 		Text(
 			text = "$count ${plural(count, "title", "titles")} selected",
 			style = MaterialTheme.typography.labelLarge,
+			modifier = Modifier.padding(horizontal = Space.lg),
 		)
-		Row(
-			modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-			horizontalArrangement = Arrangement.spacedBy(8.dp),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
+		// Nine actions in a horizontalScroll put "Delete history" and the incognito pair
+		// off the right edge with nothing to say they were there. Two rows before the
+		// collapse, because unlike a filter row this is the panel the batch is performed
+		// from, and an action you have to expand the row to find is an action missed.
+		ChipRow(collapsedRows = 2) {
 			OutlinedButton(onClick = onAdd, enabled = hasCategories) { Text("Add to category") }
 			// Moving and removing from a category are only meaningful with one in view:
 			// without it there is no "out of" to name, and a button that cannot say what
@@ -557,48 +544,34 @@ private fun CurateGrid(
 ) {
 	LazyVerticalGrid(
 		columns = GridCells.Adaptive(minSize = 150.dp),
-		contentPadding = PaddingValues(12.dp),
-		horizontalArrangement = Arrangement.spacedBy(12.dp),
-		verticalArrangement = Arrangement.spacedBy(12.dp),
+		contentPadding = PaddingValues(Space.md),
+		horizontalArrangement = Arrangement.spacedBy(Space.md),
+		verticalArrangement = Arrangement.spacedBy(Space.md),
 		modifier = Modifier.fillMaxSize(),
 	) {
 		gridItems(items, key = { it.id }) { item ->
 			val checked = item.id in selection
-			Column(
-				modifier = Modifier
-					.fillMaxWidth()
-					// A click ticks the box rather than opening the title. This screen is
-					// for editing, and the one thing worse than an extra click to read is
-					// a mis-click that adds a title to a batch about to be deleted.
-					.clickable { onToggle(item) },
-				verticalArrangement = Arrangement.spacedBy(4.dp),
-			) {
-				Box(Modifier.fillMaxWidth()) {
-					Cover(
-						item = item,
-						context = context,
-						modifier = Modifier.fillMaxWidth().aspectRatio(0.7f)
-							.clip(RoundedCornerShape(10.dp)),
-					)
+			CoverCard(
+				title = item.title,
+				coverUrl = item.manga.coverUrl,
+				client = rememberCoverClient(item, context),
+				images = context.images,
+				// A click ticks the box rather than opening the title. This screen is
+				// for editing, and the one thing worse than an extra click to read is
+				// a mis-click that adds a title to a batch about to be deleted.
+				onClick = { onToggle(item) },
+				secondary = itemSummary(item),
+				// The border and the ticked box together, never the border alone.
+				selected = checked,
+				overlay = {
 					Checkbox(
 						checked = checked,
 						onCheckedChange = { onToggle(item) },
 						modifier = Modifier.align(Alignment.TopStart),
 					)
-				}
-				Text(
-					text = item.title,
-					style = MaterialTheme.typography.bodySmall,
-					maxLines = 2,
-					overflow = TextOverflow.Ellipsis,
-				)
-				Text(
-					text = itemSummary(item),
-					style = MaterialTheme.typography.labelSmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-				TextButton(onClick = { onOpen(item) }) { Text("Open") }
-			}
+				},
+				action = { TextButton(onClick = { onOpen(item) }) { Text("Open") } },
+			)
 		}
 	}
 }
@@ -613,37 +586,30 @@ private fun CurateList(
 ) {
 	LazyColumn(modifier = Modifier.fillMaxSize()) {
 		items(items, key = { it.id }) { item ->
-			Row(
-				modifier = Modifier
-					.fillMaxWidth()
-					.clickable { onToggle(item) }
-					.padding(horizontal = 12.dp, vertical = 6.dp),
-				horizontalArrangement = Arrangement.spacedBy(10.dp),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				Checkbox(checked = item.id in selection, onCheckedChange = { onToggle(item) })
-				Cover(
-					item = item,
-					context = context,
-					modifier = Modifier.width(36.dp).height(50.dp).clip(RoundedCornerShape(4.dp)),
-				)
-				Column(Modifier.weight(1f)) {
-					Text(
-						text = item.title,
-						style = MaterialTheme.typography.bodyMedium,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis,
-					)
-					Text(
-						text = itemSummary(item),
-						style = MaterialTheme.typography.labelSmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis,
-					)
-				}
-				TextButton(onClick = { onOpen(item) }) { Text("Open") }
-			}
+			val checked = item.id in selection
+			AppListRow(
+				headline = item.title,
+				// Ticks the box, as in the grid and for the same reason.
+				onClick = { onToggle(item) },
+				meta = itemFacts(item),
+				selected = checked,
+				leading = {
+					Row(
+						horizontalArrangement = Arrangement.spacedBy(Space.sm),
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						Checkbox(checked = checked, onCheckedChange = { onToggle(item) })
+						Cover(
+							item = item,
+							context = context,
+							modifier = Modifier.size(ThumbSize.list).clip(MaterialTheme.shapes.small),
+						)
+					}
+				},
+				trailing = { TextButton(onClick = { onOpen(item) }) { Text("Open") } },
+			)
+			// Decoration now, not structure: the row's own minimum height and hover
+			// state carry the separation. See UI_SPEC 1.6.
 			HorizontalDivider()
 		}
 	}
@@ -651,47 +617,60 @@ private fun CurateList(
 
 @Composable
 private fun Cover(item: CurateItem, context: FeatureContext, modifier: Modifier) {
-	val source = remember(item.sourceName) { parserSourceOrNull(item.sourceName) }
-	// A row whose source has left the build still has to be organisable, so it gets a
-	// plain client rather than being hidden. The cover url is probably dead too; a
-	// missing cover is not worth refusing to draw the row over.
-	val client = remember(source) { source?.let { context.clientFor(it) } ?: OkHttpClient() }
 	RemoteImage(
 		url = item.manga.coverUrl,
-		client = client,
+		client = rememberCoverClient(item, context),
 		cache = context.images,
 		contentDescription = item.title,
 		modifier = modifier,
 	)
 }
 
-private fun itemSummary(item: CurateItem): String = buildList {
+/**
+ * The client this item's covers have to be fetched with.
+ *
+ * A row whose source has left the build still has to be organisable, so it gets a plain
+ * client rather than being hidden. The cover url is probably dead too; a missing cover is
+ * not worth refusing to draw the row over.
+ */
+@Composable
+private fun rememberCoverClient(item: CurateItem, context: FeatureContext): OkHttpClient {
+	val source = remember(item.sourceName) { parserSourceOrNull(item.sourceName) }
+	return remember(source) { source?.let { context.clientFor(it) } ?: OkHttpClient() }
+}
+
+/** The facts under a title, in order, unjoined so a row can space them itself. */
+private fun itemFacts(item: CurateItem): List<String> = buildList {
 	add(item.sourceName.lowercase())
 	add(if (item.chaptersCount > 0) "${item.chaptersCount} ch" else "ch unknown")
 	if (item.hasHistory) add("${(item.progress * 100).toInt()}% read")
 	if (item.incognito) add("incognito")
-}.joinToString(" · ")
+}
+
+private fun itemSummary(item: CurateItem): String = itemFacts(item).joinToString(META_SEPARATOR)
 
 @Composable
 private fun DuplicatesPanel(groups: List<DuplicateGroup>, onMerge: (DuplicateGroup) -> Unit) {
 	if (groups.isEmpty()) {
-		EmptyState(
-			"No duplicates found.",
-			"Titles are grouped when their names match once case, spacing and punctuation " +
+		EmptyBox(
+			headline = "No duplicates found.",
+			detail = "Titles are grouped when their names match once case, spacing and punctuation " +
 				"are ignored, or differ by about one character.",
+			// Nothing to fix is an outcome, not an empty shelf.
+			icon = AppIcons.CHECK,
 		)
 		return
 	}
 	LazyColumn(modifier = Modifier.fillMaxSize()) {
 		items(groups, key = { it.key }) { group ->
 			Column(
-				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-				verticalArrangement = Arrangement.spacedBy(4.dp),
+				modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg, vertical = Space.sm),
+				verticalArrangement = Arrangement.spacedBy(Space.xs),
 			) {
 				Row(
 					modifier = Modifier.fillMaxWidth(),
 					verticalAlignment = Alignment.CenterVertically,
-					horizontalArrangement = Arrangement.spacedBy(8.dp),
+					horizontalArrangement = Arrangement.spacedBy(Space.sm),
 				) {
 					Column(Modifier.weight(1f)) {
 						Text(group.key, style = MaterialTheme.typography.titleSmall)
@@ -730,13 +709,13 @@ private fun MergeDialog(
 		onDismissRequest = onDismiss,
 		title = { Text("Merge ${group.size} entries?") },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+			Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
 				Text("Keep which entry?", style = MaterialTheme.typography.labelLarge)
 				for (item in group.items) {
 					Row(
 						modifier = Modifier.fillMaxWidth().clickable { survivorId = item.id },
 						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(8.dp),
+						horizontalArrangement = Arrangement.spacedBy(Space.sm),
 					) {
 						Checkbox(checked = item.id == survivorId, onCheckedChange = { survivorId = item.id })
 						Column(Modifier.weight(1f)) {
@@ -767,22 +746,4 @@ private fun MergeDialog(
 		},
 		dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
 	)
-}
-
-@Composable
-private fun EmptyState(title: String, detail: String) {
-	Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-		Column(
-			horizontalAlignment = Alignment.CenterHorizontally,
-			verticalArrangement = Arrangement.spacedBy(8.dp),
-			modifier = Modifier.padding(32.dp),
-		) {
-			Text(title, style = MaterialTheme.typography.titleMedium)
-			Text(
-				text = detail,
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
-		}
-	}
 }

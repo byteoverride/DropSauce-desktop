@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import org.koitharu.kotatsu.desktop.feature.Feature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
+import org.koitharu.kotatsu.desktop.ui.AppIcons
 
 /**
  * How the reading area plugs into the shell.
@@ -18,7 +19,7 @@ object BookmarksFeature : Feature {
 
 	override val title: String = "Bookmarks"
 
-	override val glyph: String = "\u2605"
+	override val icon: String = AppIcons.BOOKMARKS
 
 	@Composable
 	override fun Content(context: FeatureContext, navigator: FeatureNavigator) {
@@ -32,7 +33,7 @@ object StatsFeature : Feature {
 
 	override val title: String = "Statistics"
 
-	override val glyph: String = "\u25A6"
+	override val icon: String = AppIcons.STATS
 
 	override val isTopLevel: Boolean = false
 

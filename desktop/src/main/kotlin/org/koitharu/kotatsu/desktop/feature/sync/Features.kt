@@ -7,6 +7,7 @@ import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
+import org.koitharu.kotatsu.desktop.ui.AppIcons
 
 /** Backup and restore. Listed in Settings: a library is restored once, not browsed. */
 object BackupFeature : Feature {
@@ -15,7 +16,7 @@ object BackupFeature : Feature {
 
 	override val title: String = "Backup"
 
-	override val glyph: String = "⤓"
+	override val icon: String = AppIcons.BACKUP
 
 	override val isTopLevel: Boolean = false
 
@@ -44,7 +45,7 @@ object UpdatesFeature : Feature {
 
 	override val title: String = "Updates"
 
-	override val glyph: String = "↻"
+	override val icon: String = AppIcons.UPDATES
 
 	@Composable
 	override fun Content(context: FeatureContext, navigator: FeatureNavigator) {

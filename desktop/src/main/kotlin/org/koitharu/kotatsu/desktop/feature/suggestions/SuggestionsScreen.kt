@@ -6,18 +6,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,7 +34,15 @@ import okhttp3.OkHttpClient
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
 import org.koitharu.kotatsu.desktop.image.ImageCache
+import org.koitharu.kotatsu.desktop.ui.AppIcons
+import org.koitharu.kotatsu.desktop.ui.COVER_ASPECT
+import org.koitharu.kotatsu.desktop.ui.EmptyBox
+import org.koitharu.kotatsu.desktop.ui.ErrorBox
+import org.koitharu.kotatsu.desktop.ui.LoadingBox
+import org.koitharu.kotatsu.desktop.ui.LoadingStrip
 import org.koitharu.kotatsu.desktop.ui.RemoteImage
+import org.koitharu.kotatsu.desktop.ui.Space
+import org.koitharu.kotatsu.desktop.ui.TopBar
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 
@@ -51,6 +55,10 @@ import org.koitharu.kotatsu.parsers.model.MangaParserSource
  *
  * Takes the pieces it needs rather than building them, so the same screen can be driven
  * by a controller wired to fakes.
+ *
+ * A refresh is reported in one place, not two. With cards on screen it is a strip above
+ * them, because the grid must not be thrown away to say "still working"; with nothing on
+ * screen the centred box is the whole answer and a strip above it would say it twice.
  */
 @Composable
 fun SuggestionsScreen(
@@ -65,27 +73,38 @@ fun SuggestionsScreen(
 	val phase = controller.phase
 
 	Column(modifier.fillMaxSize()) {
-		SuggestionsToolbar(
-			phase = phase,
-			shown = stored.size,
-			onRefresh = { controller.refresh() },
-			onStop = { controller.stop() },
+		TopBar(
+			title = "For you",
+			subtitle = if (stored.isEmpty()) null else "${stored.size} titles",
+			trailing = {
+				if (controller.isRunning) {
+					TextButton(onClick = { controller.stop() }) { Text("Stop") }
+				} else {
+					TextButton(onClick = { controller.refresh() }) { Text("Refresh") }
+				}
+			},
 		)
-		HorizontalDivider()
-		PhaseNote(phase)
+		// Separates the controls from the grid, so it carries structure and has to clear
+		// 3:1; outlineVariant is 1.99:1 and is for decoration (1.6).
+		HorizontalDivider(color = MaterialTheme.colorScheme.outline)
 
 		// The stored set is what the grid shows, even mid-refresh. A refresh replaces
 		// the table only when it finishes, so the user keeps a usable screen instead of
 		// watching cards appear and reshuffle under the cursor.
 		if (stored.isEmpty()) {
-			EmptyNote(phase)
+			PhaseBody(phase = phase, onRefresh = { controller.refresh() })
 			return@Column
 		}
+		PhaseStrip(
+			phase = phase,
+			onStop = { controller.stop() },
+			onRefresh = { controller.refresh() },
+		)
 		LazyVerticalGrid(
 			columns = GridCells.Adaptive(GRID_MIN_WIDTH),
-			contentPadding = PaddingValues(16.dp),
-			horizontalArrangement = Arrangement.spacedBy(12.dp),
-			verticalArrangement = Arrangement.spacedBy(14.dp),
+			contentPadding = PaddingValues(Space.md),
+			horizontalArrangement = Arrangement.spacedBy(Space.md),
+			verticalArrangement = Arrangement.spacedBy(Space.md),
 			modifier = Modifier.fillMaxSize(),
 		) {
 			items(stored, key = { it.manga.id }) { card ->
@@ -104,110 +123,102 @@ fun SuggestionsScreen(
 	}
 }
 
+/**
+ * What the refresh is doing, drawn above a grid that already has cards in it.
+ *
+ * A failure here is `compact` on purpose: the cards below it are still usable and
+ * throwing them away to show an error would lose more than it explains.
+ */
 @Composable
-private fun SuggestionsToolbar(
-	phase: RefreshPhase,
-	shown: Int,
-	onRefresh: () -> Unit,
-	onStop: () -> Unit,
-) {
-	val running = phase is RefreshPhase.Profiling || phase is RefreshPhase.Fetching
-	Row(
-		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-	) {
-		Text(
-			text = if (shown == 0) "For you" else "For you: $shown titles",
-			style = MaterialTheme.typography.titleMedium,
+private fun PhaseStrip(phase: RefreshPhase, onStop: () -> Unit, onRefresh: () -> Unit) {
+	when (phase) {
+		is RefreshPhase.Idle -> Unit
+
+		is RefreshPhase.Profiling -> LoadingStrip(
+			label = if (phase.total == 0) {
+				"Reading your library"
+			} else {
+				"Reading your library: ${phase.done} of ${phase.total} titles"
+			},
+			onCancel = onStop,
 		)
-		Spacer(Modifier.weight(1f))
-		if (running) {
-			TextButton(onClick = onStop) { Text("Stop") }
-		} else {
-			TextButton(onClick = onRefresh) { Text("Refresh") }
-		}
-	}
-	if (phase is RefreshPhase.Fetching) {
-		ProgressBar(phase.state.fraction(), Modifier.fillMaxWidth())
-	}
-}
 
-/** One line under the toolbar saying what the refresh is doing, or what it found. */
-@Composable
-private fun PhaseNote(phase: RefreshPhase) {
-	val note = when (phase) {
-		is RefreshPhase.Idle -> null
+		is RefreshPhase.Fetching -> LoadingStrip(
+			label = buildString {
+				append("Asking ${phase.state.total} sources: ${phase.state.settled} answered")
+				if (phase.state.failed > 0) append(", ${phase.state.failed} failed")
+			},
+			progress = phase.state.fraction(),
+			onCancel = onStop,
+		)
 
-		is RefreshPhase.Profiling -> if (phase.total == 0) {
-			"Reading your library"
-		} else {
-			"Reading your library: ${phase.done} of ${phase.total} titles"
-		}
-
-		is RefreshPhase.Fetching -> buildString {
-			append("Asking ${phase.state.total} sources: ${phase.state.settled} answered")
-			if (phase.state.failed > 0) append(", ${phase.state.failed} failed")
-		}
-
-		is RefreshPhase.Finished -> buildString {
-			append("Saved ${phase.stored} suggestions from ${phase.state.answered} sources")
-			if (phase.state.failed > 0) {
-				append(". ")
-				append(phase.state.failures.joinToString(", ", limit = MAX_FAILURES_SHOWN) {
-					"${it.source.title} failed"
-				})
-			}
-		}
-
-		is RefreshPhase.Broken -> "The refresh could not run: ${phase.message}"
-	}
-	if (note != null) {
-		Text(
-			text = note,
+		is RefreshPhase.Finished -> Text(
+			text = buildString {
+				append("Saved ${phase.stored} suggestions from ${phase.state.answered} sources")
+				if (phase.state.failed > 0) {
+					append(". ")
+					append(
+						phase.state.failures.joinToString(", ", limit = MAX_FAILURES_SHOWN) {
+							"${it.source.title} failed"
+						},
+					)
+				}
+			},
 			style = MaterialTheme.typography.labelSmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+			modifier = Modifier.padding(horizontal = Space.lg, vertical = Space.sm),
+		)
+
+		is RefreshPhase.Broken -> ErrorBox(
+			message = phase.message,
+			onRetry = onRefresh,
+			compact = true,
 		)
 	}
 }
 
 /**
- * What to say when the grid has nothing in it.
+ * What to show when the grid has nothing in it.
  *
- * Always a sentence, never a blank panel. Each of the cases the engine distinguishes is
- * a different thing for the reader to do next.
+ * Each of the cases the engine distinguishes is a different thing for the reader to do
+ * next, and two of them are not empty at all: a refresh that is still reading the library
+ * or still asking sources is **loading**, and saying "Working out what you like." in the
+ * shape used for "there is nothing here" is how a minute of work reads as a dead end.
  */
 @Composable
-private fun EmptyNote(phase: RefreshPhase) {
-	val text = when (phase) {
-		is RefreshPhase.Idle ->
-			"Nothing here yet. Press Refresh and this fills from what is already in your library."
-
-		is RefreshPhase.Profiling -> "Working out what you like."
-		is RefreshPhase.Fetching -> phase.state.emptyExplanation() ?: "Asking the sources."
-		is RefreshPhase.Finished -> phase.state.emptyExplanation() ?: "Nothing to show."
-		is RefreshPhase.Broken -> "The refresh could not run: ${phase.message}"
-	}
-	Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-		Text(
-			text = text,
-			style = MaterialTheme.typography.bodyMedium,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
+private fun PhaseBody(phase: RefreshPhase, onRefresh: () -> Unit) {
+	when (phase) {
+		is RefreshPhase.Idle -> EmptyBox(
+			headline = "Nothing here yet",
+			detail = "This fills from what is already in your library.",
+			icon = AppIcons.SUGGESTIONS,
+			action = { Button(onClick = onRefresh) { Text("Refresh") } },
 		)
+
+		is RefreshPhase.Profiling -> LoadingBox(label = "Working out what you like.")
+
+		is RefreshPhase.Fetching -> LoadingBox(
+			label = phase.state.emptyExplanation() ?: "Asking the sources.",
+		)
+
+		is RefreshPhase.Finished -> EmptyBox(
+			headline = "Nothing to show",
+			detail = phase.state.emptyExplanation(),
+			icon = AppIcons.SUGGESTIONS,
+			action = { Button(onClick = onRefresh) { Text("Refresh") } },
+		)
+
+		is RefreshPhase.Broken -> ErrorBox(message = phase.message, onRetry = onRefresh)
 	}
 }
 
 /**
  * One suggestion: cover, title, and the reason underneath.
  *
- * This area draws its own card rather than reusing the one in the discover area. The two
- * are built in parallel by different people and the reason line is not something that
- * card has; importing it would couple the areas over four lines of layout.
- *
- * [client] may be null when the stored source has left the catalogue. The card still
- * renders, without a cover, because the reason and the title are the useful part and a
- * missing row would look like data loss.
+ * This area draws its own card rather than reusing the shared `CoverCard`, which takes a
+ * non-null client. A stored suggestion can outlive its source leaving the catalogue, and
+ * the card still has to render then: the reason and the title are the useful part and a
+ * missing cell would look like data loss.
  */
 @Composable
 internal fun SuggestionCoverCard(
@@ -222,7 +233,7 @@ internal fun SuggestionCoverCard(
 ) {
 	Column(
 		modifier = modifier.clickable(onClick = onClick),
-		verticalArrangement = Arrangement.spacedBy(4.dp),
+		verticalArrangement = Arrangement.spacedBy(Space.xs),
 	) {
 		if (client != null) {
 			RemoteImage(
@@ -233,14 +244,14 @@ internal fun SuggestionCoverCard(
 				modifier = Modifier
 					.fillMaxWidth()
 					.aspectRatio(COVER_ASPECT)
-					.clip(RoundedCornerShape(10.dp)),
+					.clip(MaterialTheme.shapes.medium),
 			)
 		} else {
 			Box(
 				modifier = Modifier
 					.fillMaxWidth()
 					.aspectRatio(COVER_ASPECT)
-					.clip(RoundedCornerShape(10.dp))
+					.clip(MaterialTheme.shapes.medium)
 					.background(MaterialTheme.colorScheme.surfaceVariant),
 				contentAlignment = Alignment.Center,
 			) {
@@ -253,7 +264,7 @@ internal fun SuggestionCoverCard(
 		}
 		Text(
 			text = title,
-			style = MaterialTheme.typography.bodySmall,
+			style = MaterialTheme.typography.bodyMedium,
 			maxLines = 2,
 			overflow = TextOverflow.Ellipsis,
 		)
@@ -269,29 +280,6 @@ internal fun SuggestionCoverCard(
 				Text("Not for me", style = MaterialTheme.typography.labelSmall)
 			}
 		}
-	}
-}
-
-/**
- * A determinate progress bar, drawn from two boxes.
- *
- * `LinearProgressIndicator`'s overload set in this material3 build is ambiguous at the
- * call site once every optional parameter is omitted. Two boxes cannot be ambiguous.
- */
-@Composable
-internal fun ProgressBar(fraction: Float, modifier: Modifier = Modifier) {
-	Box(
-		modifier = modifier
-			.height(4.dp)
-			.clip(RoundedCornerShape(2.dp))
-			.background(MaterialTheme.colorScheme.surfaceVariant),
-	) {
-		Box(
-			Modifier
-				.fillMaxHeight()
-				.fillMaxWidth(fraction.coerceIn(0f, 1f))
-				.background(MaterialTheme.colorScheme.primary),
-		)
 	}
 }
 
@@ -331,9 +319,6 @@ fun SuggestionsRoot(context: FeatureContext, navigator: FeatureNavigator) {
 		onOpen = { source, manga -> navigator.openDetails(source, manga) },
 	)
 }
-
-/** Typical manga cover proportions; keeps the grid from jumping before covers load. */
-private const val COVER_ASPECT = 0.7f
 
 /** Wide enough for a two-line title and a three-line reason without crowding. */
 private val GRID_MIN_WIDTH = 150.dp

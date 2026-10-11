@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import org.koitharu.kotatsu.desktop.feature.Feature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
+import org.koitharu.kotatsu.desktop.ui.AppIcons
 
 /**
  * Recommendations built from the library, each one carrying its own reasoning.
@@ -17,7 +18,7 @@ object SuggestionsFeature : Feature {
 
 	override val title: String = "For you"
 
-	override val glyph: String = "✦"
+	override val icon: String = AppIcons.SUGGESTIONS
 
 	@Composable
 	override fun Content(context: FeatureContext, navigator: FeatureNavigator) {

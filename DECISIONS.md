@@ -44,7 +44,7 @@ natively JVM, and the Android app keeps the two that are not.
 Every row was verified by running the command, not by inspection. The
 Android gate is re-run before each commit.
 
-**Current state:** `:app:assembleDebug` green, **669 tests** passing
+**Current state:** `:app:assembleDebug` green, **703 tests** passing
 across `:shared` and `:desktop`, `.deb` built and installed to
 `/opt/dropsauce` running on its own bundled JRE.
 
@@ -1350,6 +1350,105 @@ source said, and `hitCount` still counts it. What a source answered and what
 is worth showing are different facts, and the split is a view over the
 snapshot (`GlobalSearchState.rankGroups`), which is why it can be asserted
 without a UI.
+
+### D39. The desktop app gets a design system, seeded from its own icon
+
+The app shipped bare `darkColorScheme()` / `lightColorScheme()`, so every accent was
+Material's default purple while the icon in the taskbar was cyan. Spacing was a habit
+rather than a scale: 10 distinct `spacedBy` steps across 118 call sites, 28 distinct
+`padding(...)` signatures, screen-edge padding variously 12, 16, 20, 24 and 32. Nine
+components had between 2 and 7 independent reimplementations each.
+
+The full specification is `docs/design/UI_SPEC.md`, written against the running app
+rather than against the source: five screen captures, taken from the installed build,
+are what the layout sections argue with. What follows is only the part that is a
+decision.
+
+**Colour is generated, not picked.** The seed `#64D2FF` is measured from
+`dropsauce.png`, which is a cyan monogram on a near-black ground; the cyan samples as
+that hex over 9056 pixels. Ramps were built in CIELAB at the seed's own hue (L* 79.62,
+C* 36.54, h 239.35 deg) with chroma clamped into the sRGB gamut per tone, because
+Material 3's HCT tone **is** CIELAB L*, so a ramp at target L* lands on Material's tone
+grid on the axis that governs contrast. Maximum in-gamut chroma at this hue is 41.8 at
+L*70 but 17.8 at L*90, so a constant-chroma ramp would have clipped.
+
+Two deliberate departures from TonalSpot: tertiary is a warm sand at hue 80 rather than
+hue + 60, which here is a lavender and would read as the bug not being fixed; and dark
+`primary` is pinned to the brand hex rather than its generated neighbour `#68D3FF`,
+because shipping a colour that is almost the logo is worse than shipping the logo's.
+
+`ThemeContrastTest` recomputes every pair from the `ColorScheme` objects and asserts
+WCAG AA. It has a positive control, because without one the whole file could be
+measuring nothing and still pass.
+
+**Icons are vendored, and the dependency was rejected on measurement.** See the commit
+that added them: `material-icons-extended` is 36.9 MB and deprecated, `material-icons-core`
+is 857 KB but lacks 9 of the 11 rail concepts, 41 Material Symbols SVGs are 172 KB.
+A detail worth keeping: Material publishes a FILL 1 variant for every symbol, but for
+`public`, `history`, `search`, `download` and `upgrade` it is **byte-identical** to the
+outline, because those glyphs are all stroke. Those five are not vendored and
+`AppIcons.filePath` falls back. This is why the rail's selected state rests on a 1 dp
+`outline` stroke on the indicator pill (5.17:1 dark, 3.84:1 light) and not on the icon
+changing: for five of eleven destinations, it cannot.
+
+**REVISION to D26: the rail is not drawn over the reader.** D26 says the rail carries
+content and Settings carries tools, and that still holds — nothing moved across that
+line. What changed is that the rail is no longer painted over a screen that was *pushed
+onto the stack*. A reading surface permanently inset by the rail, in an app whose whole
+purpose is the reading surface, costs more than the rail saves there; the reader has its
+own Back, and the rail returns the moment you leave. D26's membership rule is untouched.
+
+**Also fixed, each of which was a real defect rather than a preference:**
+
+- The rail could not scroll. Eleven destinations at a 61 dp pitch need 1019 px against an
+  810 px window, so two were unreachable, and five at UI scale 2.0.
+- Seven chip containers had no overflow handling at all. The category row was a plain
+  `Row`, so with twelve categories the last three could not be selected by any means.
+- Five screens drew their empty state in a `Box(fillMaxSize)` with no `contentAlignment`,
+  so it rendered against the top-left corner of an otherwise blank window.
+- The library's "cannot be opened" bar and the shared error box signalled a problem with
+  `colorScheme.error` alone, which is a colour-only cue and fails WCAG 1.4.1.
+- A 658-row list was separated only by a hairline at 1.99:1. `AppListRow`'s 64 dp minimum
+  and hover state carry the structure now; the divider is decoration again.
+- The reader's bottom bar overflowed a 1270 px window, cutting "Zoom" in half.
+
+**What was deliberately not done.** Grid keyboard navigation: a hand-rolled focus cursor
+over a recycling `LazyVerticalGrid` would have *removed* the working keyboard access the
+cards already have through `clickable`. Tags as `AssistChip`s: a chip needs an `onClick`,
+a no-op one is a false affordance, and `enabled = false` puts the label at 38% opacity,
+3.04:1 dark and 2.34:1 light, failing 1.4.3 for text meant to be read. A light-theme
+reader: refused, for the reason already in `ReaderScreen`.
+
+**Click the page to put the reader's chrome away.** The bars already hid on a timer, but
+only once the reader stopped moving, and reading a webtoon is continuous scrolling, so in
+practice they were always there. A click now toggles them, and the hide **latches**:
+without that, the next pixel of pointer movement brings them straight back, and after a
+click there always is one, because the hand that clicked is still on the mouse. Tab
+overrides the latch, so keyboard access to the controls can never be locked out.
+
+**The other 24 screens** took tokens and shared components only, no layout changes. What
+that was worth, beyond consistency: a thumbnail with a width and neither a height nor an
+aspect ratio, so its rows were whatever height the decoded image made them
+(`LocalxScreen`); "This chapter could not be read" rendered as the chapter's body text;
+import failures drawn in `onSurfaceVariant` on a `surfaceVariant` ground; "The refresh
+could not run" in the same muted role, so a hard failure read as a hint; a run failure
+with no colour role at all; and an "open in browser" button that did nothing and said
+nothing when there was no browse handler, under a comment claiming the URL was on screen
+anyway, which it never was.
+
+**Follow-ups, recorded rather than smuggled into this pass:**
+
+- `CoverCard` requires a non-null `OkHttpClient`, so two cards could not adopt it: a
+  stored suggestion can outlive its source leaving the catalogue, and a local cover is
+  decoded from an archive and has no address to fetch. Both are live paths, not
+  theoretical. The clean fix is a nullable client, or a loader slot, on the shared card.
+- Two segmented controls mark the current choice with `enabled = false`, which drops the
+  selected option out of the tab order entirely. They want `FilterChip`s; that is a
+  control-type change, not a token swap.
+- `AppListRow` nested inside an already-padded card double-indents by `Space.lg`, because
+  its gutter is fixed. `ChipRow` grew a `gutter` flag for exactly this; the row wants the
+  same treatment.
+- Grid keyboard navigation, as above, is still unbuilt on purpose.
 
 ### D16. No new dependency is added without appearing in this file first
 

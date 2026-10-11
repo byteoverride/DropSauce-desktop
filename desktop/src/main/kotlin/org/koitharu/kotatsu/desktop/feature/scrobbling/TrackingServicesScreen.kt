@@ -30,6 +30,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
+import org.koitharu.kotatsu.desktop.ui.ErrorBox
+import org.koitharu.kotatsu.desktop.ui.Space
+import org.koitharu.kotatsu.desktop.ui.TopBar
 
 /**
  * Connect and disconnect the external tracking services.
@@ -60,20 +63,24 @@ fun TrackingServicesContent(repository: TrackingRepository) {
 	var lastMessage: String? by remember { mutableStateOf(null) }
 
 	Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-		TrackingHeader(
+		TopBar(
 			title = "Tracking",
 			subtitle = "Push your reading progress to an external service.",
 		)
 		HorizontalDivider()
 
+		// Vertical padding only. Every child carries the screen gutter itself, because
+		// ErrorBox already has Space.lg built in and a padded parent would push it to 32
+		// while the card beside it stayed at 16.
 		Column(
-			modifier = Modifier.padding(16.dp),
-			verticalArrangement = Arrangement.spacedBy(16.dp),
+			modifier = Modifier.padding(vertical = Space.lg),
+			verticalArrangement = Arrangement.spacedBy(Space.lg),
 		) {
 			Text(
 				text = "Signing in opens your browser. DropSauce listens on a local port for " +
 					"the reply, and nothing leaves this machine except the sign-in itself.",
 				style = MaterialTheme.typography.bodyMedium,
+				modifier = Modifier.padding(horizontal = Space.lg),
 			)
 
 			for (service in TrackingService.entries) {
@@ -81,6 +88,7 @@ fun TrackingServicesContent(repository: TrackingRepository) {
 				ServiceCard(
 					service = service,
 					state = state,
+					modifier = Modifier.padding(horizontal = Space.lg),
 					isBusy = busy == service,
 					// One sign-in at a time: each holds a loopback port and a browser
 					// window, and two at once is a user interface for confusing yourself.
@@ -126,8 +134,11 @@ fun TrackingServicesContent(repository: TrackingRepository) {
 				)
 			}
 
-			lastMessage?.let { TrackingNote(it) }
-			lastError?.let { TrackingNote(it, isError = true) }
+			lastMessage?.let { TrackingNote(it, modifier = Modifier.padding(horizontal = Space.lg)) }
+			// Was the same secondary-text helper with a red tint, so a sign-in failure and
+			// a sign-in confirmation were one typeface apart. The compact error carries an
+			// icon, so the difference does not rest on the colour.
+			lastError?.let { ErrorBox(message = it, compact = true) }
 
 			Text(
 				text = "Shikimori and Kitsu are not implemented. Kitsu signs in with a username " +
@@ -135,6 +146,7 @@ fun TrackingServicesContent(repository: TrackingRepository) {
 					"Shikimori needs its own set of API calls.",
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.padding(horizontal = Space.lg),
 			)
 		}
 	}
@@ -149,16 +161,20 @@ private fun ServiceCard(
 	onConnect: () -> Unit,
 	onDisconnect: () -> Unit,
 	onForget: () -> Unit,
+	modifier: Modifier = Modifier,
 ) {
-	Card(modifier = Modifier.fillMaxWidth()) {
+	Card(modifier = modifier.fillMaxWidth()) {
+		// Vertical padding only, for the same reason as the screen body: the failing state
+		// renders an ErrorBox, which supplies Space.lg of its own and has to line up with
+		// the card's title rather than sit 16 dp inside it.
 		Column(
-			modifier = Modifier.padding(16.dp),
-			verticalArrangement = Arrangement.spacedBy(8.dp),
+			modifier = Modifier.padding(vertical = Space.md),
+			verticalArrangement = Arrangement.spacedBy(Space.sm),
 		) {
 			Row(
-				modifier = Modifier.fillMaxWidth(),
+				modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
 				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(12.dp),
+				horizontalArrangement = Arrangement.spacedBy(Space.md),
 			) {
 				Text(
 					text = service.label,
@@ -166,14 +182,23 @@ private fun ServiceCard(
 					modifier = Modifier.weight(1f),
 				)
 				if (isBusy) {
+					// Stays a 20 dp indicator rather than becoming a LoadingStrip: it is
+					// the in-place feedback for the button pressed below it, and a bar
+					// across the card would say the whole card was loading.
 					CircularProgressIndicator(modifier = Modifier.size(20.dp))
 				}
 			}
 
-			TrackingNote(
-				text = describeState(state),
-				isError = state is ServiceState.Failing,
-			)
+			if (state is ServiceState.Failing) {
+				// No retry lambda: "Sign in again" is already in the button row below and
+				// a second "Try again" beside it would be two names for one action.
+				ErrorBox(message = describeState(state), compact = true)
+			} else {
+				TrackingNote(
+					text = describeState(state),
+					modifier = Modifier.padding(horizontal = Space.lg),
+				)
+			}
 
 			when (state) {
 				is ServiceState.Unavailable -> {
@@ -184,18 +209,21 @@ private fun ServiceCard(
 						text = "Set the variable above, then reopen this screen.",
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.padding(horizontal = Space.lg),
 					)
 				}
 
 				ServiceState.Disconnected -> Button(
 					onClick = onConnect,
 					enabled = !isBusy && !isBlocked,
+					modifier = Modifier.padding(horizontal = Space.lg),
 				) {
 					Text("Connect")
 				}
 
 				is ServiceState.Connected, is ServiceState.Failing -> Row(
-					horizontalArrangement = Arrangement.spacedBy(12.dp),
+					modifier = Modifier.padding(horizontal = Space.lg),
+					horizontalArrangement = Arrangement.spacedBy(Space.md),
 				) {
 					OutlinedButton(onClick = onDisconnect, enabled = !isBusy) {
 						Text("Disconnect")

@@ -50,6 +50,17 @@ data class ImportReport(
 			"${failures.size} failed:\n" + failures.joinToString("\n") { it.reason }
 	}
 
+	/**
+	 * The success half of [summary], or null when nothing was imported.
+	 *
+	 * The screens draw the two halves with different components now — a notice for what
+	 * worked, an error for each thing that did not — and [summary] folds both into one
+	 * string. Exposing the half rather than respelling it keeps one wording for "Imported
+	 * N comics." instead of three.
+	 */
+	fun importedLine(): String? =
+		if (imported.isEmpty()) null else "Imported ${count(imported.size)}."
+
 	private fun count(n: Int): String = if (n == 1) "1 comic" else "$n comics"
 }
 

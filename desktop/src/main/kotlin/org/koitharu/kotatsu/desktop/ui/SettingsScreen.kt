@@ -63,9 +63,15 @@ fun SettingsScreen(state: AppState) {
 				}
 			},
 		)
+		// Vertical padding only. Every row below carries the screen gutter itself,
+		// because two of them hand their chips to ChipRow, which has Space.lg built
+		// in; padding here as well would set the chips 16 dp inside their own label.
 		Column(
-			modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-			verticalArrangement = Arrangement.spacedBy(20.dp),
+			modifier = Modifier
+				.fillMaxSize()
+				.verticalScroll(rememberScrollState())
+				.padding(vertical = Space.lg),
+			verticalArrangement = Arrangement.spacedBy(Space.xl),
 		) {
 			Section("Appearance") {
 				ScaleRow(
@@ -155,6 +161,7 @@ fun SettingsScreen(state: AppState) {
 						"Sources the library reports as broken are not listed.",
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.padding(horizontal = Space.lg),
 				)
 			}
 		}
@@ -175,11 +182,14 @@ private fun ToolRow(
 ) {
 	val badged by remember(feature) { feature.badge(context) }.collectAsState(0)
 	Row(
-		modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(vertical = 10.dp),
+		modifier = Modifier
+			.fillMaxWidth()
+			.clickable(onClick = onOpen)
+			.padding(horizontal = Space.lg, vertical = Space.md),
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(12.dp),
+		horizontalArrangement = Arrangement.spacedBy(Space.md),
 	) {
-		Text(feature.glyph, style = MaterialTheme.typography.titleMedium)
+		AppIcon(feature.icon, contentDescription = null)
 		Text(feature.settingsTitle, style = MaterialTheme.typography.bodyLarge)
 		if (badged > 0) {
 			Badge { Text(if (badged > 99) "99+" else badged.toString()) }
@@ -199,7 +209,10 @@ private fun DirectoryRow(
 	fallback: String,
 	onChange: (String?) -> Unit,
 ) {
-	Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+	Column(
+		modifier = Modifier.padding(horizontal = Space.lg),
+		verticalArrangement = Arrangement.spacedBy(Space.xs),
+	) {
 		Text(label, style = MaterialTheme.typography.bodyLarge)
 		Text(help, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		Text(
@@ -207,7 +220,7 @@ private fun DirectoryRow(
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
-		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+		Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
 			Button(onClick = { chooseDirectory(label, value ?: fallback)?.let(onChange) }) { Text("Choose") }
 			if (value != null) {
 				OutlinedButton(onClick = { onChange(null) }) { Text("Use default") }
@@ -257,14 +270,30 @@ private fun chooseDirectory(title: String, startIn: String?): String? = try {
  */
 @Composable
 private fun ScaleRow(current: Float, onSelect: (Float) -> Unit) {
-	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-		Text("Interface size", style = MaterialTheme.typography.bodyLarge)
+	Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
 		Text(
-			"Scales text, icons and spacing together. Applies immediately.",
+			text = "Interface size",
+			style = MaterialTheme.typography.bodyLarge,
+			modifier = Modifier.padding(horizontal = Space.lg),
+		)
+		Text(
+			text = "Scales text, icons and spacing together. Applies immediately.",
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.padding(horizontal = Space.lg),
 		)
-		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+		// A plain Row before, with no overflow handling of any kind. Six chips reading
+		// "100%" to "250%" want about 400 dp, and every one of those dp is itself scaled
+		// by this very setting, so at 250% the row wants roughly 1000 dp. The control
+		// that gets you back out of an unreadable scale was therefore the first control
+		// to leave the window, with no scroll and no wrap to reach it by: the only way
+		// back to 100% was editing the settings file. ChipRow wraps and collapses.
+		//
+		// Three rows rather than the usual two, because this is the control someone
+		// reaches for to undo a scale they cannot read. The larger the scale, the more
+		// rows these six chips need, so collapsing them late is what keeps the way back
+		// visible without a second click at exactly the scale that made it necessary.
+		ChipRow(collapsedRows = 3) {
 			for (value in UI_SCALES) {
 				FilterChip(
 					selected = kotlin.math.abs(value - current) < 0.01f,
@@ -278,15 +307,33 @@ private fun ScaleRow(current: Float, onSelect: (Float) -> Unit) {
 
 private val UI_SCALES = listOf(1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f)
 
+/**
+ * A group of settings under one heading.
+ *
+ * The heading and the rule carry the gutter; the content does not, so a row can choose
+ * between padding itself and handing a [ChipRow] the whole width. A padded wrapper here
+ * would put every chip row 16 dp further in than the label above it.
+ */
 @Composable
 private fun Section(title: String, content: @Composable () -> Unit) {
-	Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-		Text(title, style = MaterialTheme.typography.titleMedium)
+	Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
+		Text(
+			text = title,
+			style = MaterialTheme.typography.titleMedium,
+			modifier = Modifier.padding(horizontal = Space.lg),
+		)
 		HorizontalDivider()
 		content()
 	}
 }
 
+/**
+ * One setting, chosen from a fixed set of named options.
+ *
+ * The option list is a type parameter, so this file cannot know how many chips a caller
+ * will produce or how long their names will be. That is why the row wraps rather than
+ * being sized for today's two enum entries.
+ */
 @Composable
 private fun <T> ChoiceRow(
 	label: String,
@@ -295,9 +342,13 @@ private fun <T> ChoiceRow(
 	name: (T) -> String,
 	onSelect: (T) -> Unit,
 ) {
-	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-		Text(label, style = MaterialTheme.typography.bodyLarge)
-		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+	Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+		Text(
+			text = label,
+			style = MaterialTheme.typography.bodyLarge,
+			modifier = Modifier.padding(horizontal = Space.lg),
+		)
+		ChipRow(collapsedRows = 2) {
 			for (option in options) {
 				FilterChip(
 					selected = option == selected,
@@ -312,8 +363,8 @@ private fun <T> ChoiceRow(
 @Composable
 private fun SwitchRow(label: String, help: String, checked: Boolean, onChange: (Boolean) -> Unit) {
 	Row(
-		modifier = Modifier.fillMaxWidth(),
-		horizontalArrangement = Arrangement.spacedBy(16.dp),
+		modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
+		horizontalArrangement = Arrangement.spacedBy(Space.lg),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		Column(Modifier.weight(1f)) {
@@ -337,14 +388,20 @@ private fun NumberRow(
 	onChange: (Int) -> Unit,
 ) {
 	var text by remember(value) { mutableStateOf(value.toString()) }
-	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+	Column(
+		modifier = Modifier.padding(horizontal = Space.lg),
+		verticalArrangement = Arrangement.spacedBy(Space.xs),
+	) {
 		Text(label, style = MaterialTheme.typography.bodyLarge)
 		Text(
 			help,
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
-		Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+		Row(
+			horizontalArrangement = Arrangement.spacedBy(Space.sm),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
 			OutlinedTextField(
 				value = text,
 				onValueChange = { text = it.filter(Char::isDigit).take(5) },
@@ -369,14 +426,20 @@ private fun NumberRow(
 @Composable
 private fun TextRow(label: String, help: String, value: String, onChange: (String) -> Unit) {
 	var text by remember(value) { mutableStateOf(value) }
-	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+	Column(
+		modifier = Modifier.padding(horizontal = Space.lg),
+		verticalArrangement = Arrangement.spacedBy(Space.xs),
+	) {
 		Text(label, style = MaterialTheme.typography.bodyLarge)
 		Text(
 			help,
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
-		Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+		Row(
+			horizontalArrangement = Arrangement.spacedBy(Space.sm),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
 			OutlinedTextField(
 				value = text,
 				onValueChange = { text = it },
@@ -390,7 +453,7 @@ private fun TextRow(label: String, help: String, value: String, onChange: (Strin
 
 @Composable
 private fun PathRow(label: String, value: String) {
-	Column {
+	Column(Modifier.padding(horizontal = Space.lg)) {
 		Text(label, style = MaterialTheme.typography.bodyMedium)
 		Text(
 			value,

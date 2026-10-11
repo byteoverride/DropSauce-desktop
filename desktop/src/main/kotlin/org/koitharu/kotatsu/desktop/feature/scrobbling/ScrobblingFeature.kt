@@ -7,6 +7,7 @@ import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
+import org.koitharu.kotatsu.desktop.ui.AppIcons
 
 /** External tracking services, as a top-level destination. */
 object ScrobblingFeature : Feature {
@@ -15,7 +16,7 @@ object ScrobblingFeature : Feature {
 
 	override val title: String = "Tracking"
 
-	override val glyph: String = "◉"
+	override val icon: String = AppIcons.TRACKING
 
 	override val isTopLevel: Boolean = false
 

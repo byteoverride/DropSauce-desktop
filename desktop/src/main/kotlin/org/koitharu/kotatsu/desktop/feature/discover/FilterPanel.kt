@@ -2,8 +2,6 @@ package org.koitharu.kotatsu.desktop.feature.discover
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -26,6 +24,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import org.koitharu.kotatsu.desktop.ui.AppIcons
+import org.koitharu.kotatsu.desktop.ui.ChipRow
+import org.koitharu.kotatsu.desktop.ui.NoticeBar
+import org.koitharu.kotatsu.desktop.ui.Space
 import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.model.YEAR_UNKNOWN
 import java.util.Locale
@@ -37,8 +39,11 @@ import java.util.Locale
  * draft and are sent only when Apply is pressed: each request is a live call to a
  * third-party site, and re-querying on every chip tap would be both slow and a good way
  * to get rate-limited.
+ *
+ * The panel itself carries no horizontal padding. [ChipRow] brings the screen gutter with
+ * it, so everything else here applies the same [Space.lg] by hand and the two line up.
+ * That is what [Section]'s `padContent` is for.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FilterPanel(
 	spec: FilterSpec,
@@ -52,11 +57,11 @@ fun FilterPanel(
 		modifier = modifier
 			.width(FILTER_PANEL_WIDTH)
 			.verticalScroll(rememberScrollState())
-			.padding(horizontal = 12.dp, vertical = 8.dp),
-		verticalArrangement = Arrangement.spacedBy(10.dp),
+			.padding(vertical = Space.sm),
+		verticalArrangement = Arrangement.spacedBy(Space.md),
 	) {
 		Row(
-			modifier = Modifier.fillMaxWidth(),
+			modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
 			verticalAlignment = Alignment.CenterVertically,
 			horizontalArrangement = Arrangement.SpaceBetween,
 		) {
@@ -77,24 +82,25 @@ fun FilterPanel(
 				text = "This source offers no filters. Everything it can do is on the toolbar above.",
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.padding(horizontal = Space.lg),
 			)
 		}
 
 		if (spec.conflictsWithQuery(draft)) {
 			// Not a warning we invented: the capability flag says the source has separate
 			// search and browse endpoints, so one of the two sets of parameters would be
-			// dropped without telling anyone.
-			Text(
+			// dropped without telling anyone. It carries an icon because red text alone
+			// is a colour-only cue.
+			NoticeBar(
 				text = "This source cannot search and filter at the same time. " +
 					"Applying these will clear the search box.",
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.error,
+				icon = AppIcons.WARNING,
 			)
 		}
 
 		if (FilterControl.SORT in spec) {
-			Section("Sort by") {
-				FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+			Section("Sort by", padContent = false) {
+				ChipRow(collapsedRows = PANEL_CHIP_ROWS) {
 					for (order in spec.sortOrders) {
 						val selected = spec.sortOrderFor(draft) == order
 						FilterChip(
@@ -114,7 +120,7 @@ fun FilterPanel(
 		}
 
 		if (FilterControl.STATE in spec) {
-			Section("Status") {
+			Section("Status", padContent = false) {
 				ChipSet(
 					items = spec.states,
 					selected = draft.states,
@@ -125,7 +131,7 @@ fun FilterPanel(
 		}
 
 		if (FilterControl.CONTENT_RATING in spec) {
-			Section("Content rating") {
+			Section("Content rating", padContent = false) {
 				ChipSet(
 					items = spec.contentRatings,
 					selected = draft.contentRating,
@@ -136,7 +142,7 @@ fun FilterPanel(
 		}
 
 		if (FilterControl.CONTENT_TYPE in spec) {
-			Section("Type") {
+			Section("Type", padContent = false) {
 				ChipSet(
 					items = spec.contentTypes,
 					selected = draft.types,
@@ -147,7 +153,7 @@ fun FilterPanel(
 		}
 
 		if (FilterControl.DEMOGRAPHIC in spec) {
-			Section("Demographic") {
+			Section("Demographic", padContent = false) {
 				ChipSet(
 					items = spec.demographics,
 					selected = draft.demographics,
@@ -158,7 +164,7 @@ fun FilterPanel(
 		}
 
 		if (FilterControl.LOCALE in spec) {
-			Section("Language") {
+			Section("Language", padContent = false) {
 				SingleChoiceLocales(
 					locales = spec.locales,
 					selected = draft.locale,
@@ -168,7 +174,7 @@ fun FilterPanel(
 		}
 
 		if (FilterControl.ORIGINAL_LOCALE in spec) {
-			Section("Original language") {
+			Section("Original language", padContent = false) {
 				SingleChoiceLocales(
 					locales = spec.locales,
 					selected = draft.originalLocale,
@@ -190,20 +196,20 @@ fun FilterPanel(
 
 		if (FilterControl.YEAR_RANGE in spec) {
 			Section("Years") {
-				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+				Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
 					YearField(
 						value = draft.yearFrom,
 						bounds = spec.years,
 						placeholder = "from",
 						onChange = { onDraftChange(draft.copy(yearFrom = it)) },
-						modifier = Modifier.width(96.dp),
+						modifier = Modifier.width(YEAR_FIELD_WIDTH),
 					)
 					YearField(
 						value = draft.yearTo,
 						bounds = spec.years,
 						placeholder = "to",
 						onChange = { onDraftChange(draft.copy(yearTo = it)) },
-						modifier = Modifier.width(96.dp),
+						modifier = Modifier.width(YEAR_FIELD_WIDTH),
 					)
 				}
 			}
@@ -224,7 +230,7 @@ fun FilterPanel(
 		Button(
 			onClick = onApply,
 			enabled = spec.sanitize(draft) != applied,
-			modifier = Modifier.fillMaxWidth(),
+			modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
 		) {
 			Text("Apply")
 		}
@@ -238,7 +244,6 @@ fun FilterPanel(
  * tags would not fit in a side panel, and the cycle keeps the state of a tag visible in
  * one place.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TagSection(
 	spec: FilterSpec,
@@ -259,6 +264,8 @@ private fun TagSection(
 	}
 	Section(
 		title = if (canExclude) "Tags (tap again to exclude)" else "Tags",
+		// Mixed content: the chips bring their own gutter, the rest is padded here.
+		padContent = false,
 	) {
 		if (spec.tags.size > TAG_SEARCH_THRESHOLD) {
 			OutlinedTextField(
@@ -266,7 +273,7 @@ private fun TagSection(
 				onValueChange = { tagQuery = it },
 				placeholder = { Text("Find a tag") },
 				singleLine = true,
-				modifier = Modifier.fillMaxWidth(),
+				modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
 			)
 		}
 		if (!spec.isMultipleTagsSupported) {
@@ -274,9 +281,10 @@ private fun TagSection(
 				text = "This source takes one tag at a time.",
 				style = MaterialTheme.typography.labelSmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.padding(horizontal = Space.lg),
 			)
 		}
-		FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+		ChipRow(collapsedRows = PANEL_CHIP_ROWS) {
 			for (tag in matches) {
 				val included = tag in draft.tags
 				val excluded = tag in draft.tagsExclude
@@ -298,6 +306,7 @@ private fun TagSection(
 				text = "${spec.tags.size - matches.size} more, use the box above",
 				style = MaterialTheme.typography.labelSmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.padding(horizontal = Space.lg),
 			)
 		}
 	}
@@ -318,7 +327,6 @@ internal fun FilterSelection.cycleTag(
 	else -> copy(tags = setOf(tag))
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun <T> ChipSet(
 	items: List<T>,
@@ -326,7 +334,7 @@ private fun <T> ChipSet(
 	label: (T) -> String,
 	onToggle: (T) -> Unit,
 ) {
-	FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+	ChipRow(collapsedRows = PANEL_CHIP_ROWS) {
 		for (item in items) {
 			FilterChip(
 				selected = item in selected,
@@ -337,14 +345,13 @@ private fun <T> ChipSet(
 	}
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SingleChoiceLocales(
 	locales: List<Locale>,
 	selected: Locale?,
 	onPick: (Locale?) -> Unit,
 ) {
-	FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+	ChipRow(collapsedRows = PANEL_CHIP_ROWS) {
 		for (locale in locales) {
 			val isSelected = locale == selected
 			FilterChip(
@@ -388,21 +395,48 @@ private fun YearField(
 	)
 }
 
+/**
+ * A labelled block in the panel.
+ *
+ * [padContent] is false for blocks whose content is a [ChipRow], because a chip row
+ * carries the gutter itself; everything else gets it here, so a chip and a label line up
+ * on the same edge.
+ */
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
-	Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+private fun Section(
+	title: String,
+	padContent: Boolean = true,
+	content: @Composable () -> Unit,
+) {
+	Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
 		Text(
 			text = title,
 			style = MaterialTheme.typography.labelLarge,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.padding(horizontal = Space.lg),
 		)
-		content()
+		if (padContent) {
+			Column(Modifier.padding(horizontal = Space.lg)) { content() }
+		} else {
+			content()
+		}
 	}
 }
 
 private fun <T> Set<T>.toggle(item: T): Set<T> = if (item in this) this - item else this + item
 
 val FILTER_PANEL_WIDTH = 290.dp
+
+/** Wide enough for four digits and a placeholder word, narrow enough for two side by side. */
+private val YEAR_FIELD_WIDTH = 96.dp
+
+/**
+ * Rows of chips the panel shows before collapsing the rest behind "+N more".
+ *
+ * Four is about a third of the panel's height. Beyond that a set is browsed with the
+ * search box above it, not by scrolling past a wall of chips to reach Apply.
+ */
+private const val PANEL_CHIP_ROWS = 4
 
 /** Above this many tags the list is unusable without a search box. */
 private const val TAG_SEARCH_THRESHOLD = 24

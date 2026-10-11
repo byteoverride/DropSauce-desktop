@@ -9,14 +9,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,12 +26,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
+import org.koitharu.kotatsu.desktop.ui.AppIcons
+import org.koitharu.kotatsu.desktop.ui.AppListRow
+import org.koitharu.kotatsu.desktop.ui.EmptyBox
+import org.koitharu.kotatsu.desktop.ui.META_SEPARATOR
 import org.koitharu.kotatsu.desktop.ui.RemoteImage
+import org.koitharu.kotatsu.desktop.ui.Space
+import org.koitharu.kotatsu.desktop.ui.ThumbSize
 import org.koitharu.kotatsu.desktop.ui.TopBar
 
 /**
@@ -68,18 +70,17 @@ fun DownloadsScreen(
 		)
 		HorizontalDivider()
 		if (groups.isEmpty()) {
-			Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-				Text(
-					text = "Nothing downloaded yet.\nOpen a title and download a chapter to read it offline.",
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-			}
+			EmptyBox(
+				modifier = Modifier.weight(1f),
+				headline = "Nothing downloaded yet.",
+				detail = "Open a title and download a chapter to read it offline.",
+				icon = AppIcons.DOWNLOADS,
+			)
 			return@Column
 		}
 		LazyColumn(
-			modifier = Modifier.fillMaxSize().padding(12.dp),
-			verticalArrangement = Arrangement.spacedBy(12.dp),
+			modifier = Modifier.fillMaxSize().padding(Space.lg),
+			verticalArrangement = Arrangement.spacedBy(Space.md),
 		) {
 			items(groups, key = { it.manga.id }) { group ->
 				GroupCard(
@@ -116,8 +117,8 @@ private fun GroupCard(
 ) {
 	Card(Modifier.fillMaxWidth()) {
 		Row(
-			modifier = Modifier.fillMaxWidth().padding(12.dp),
-			horizontalArrangement = Arrangement.spacedBy(12.dp),
+			modifier = Modifier.fillMaxWidth().padding(Space.md),
+			horizontalArrangement = Arrangement.spacedBy(Space.md),
 		) {
 			val source = remember(group.sourceName) { parserSource(group.sourceName) }
 			if (source != null) {
@@ -126,7 +127,7 @@ private fun GroupCard(
 					client = context.clientFor(source),
 					cache = context.images,
 					contentDescription = group.manga.title,
-					modifier = Modifier.size(width = 52.dp, height = 74.dp).clip(RoundedCornerShape(6.dp)),
+					modifier = Modifier.size(ThumbSize.list).clip(MaterialTheme.shapes.small),
 				)
 			}
 			Column(Modifier.weight(1f)) {
@@ -139,14 +140,15 @@ private fun GroupCard(
 							overflow = TextOverflow.Ellipsis,
 						)
 						Text(
-							text = "${group.doneCount} of ${group.items.size} chapters on disk  ·  ${group.sourceName}",
+							text = "${group.doneCount} of ${group.items.size} chapters on disk" +
+								META_SEPARATOR + group.sourceName,
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
 					}
 					TextButton(onClick = onDeleteAll) { Text("Delete all") }
 				}
-				Box(Modifier.height(6.dp))
+				Box(Modifier.height(Space.sm))
 				for (item in group.items) {
 					ChapterRow(
 						item = item,
@@ -169,44 +171,29 @@ private fun ChapterRow(
 	onRetry: () -> Unit,
 	onDelete: () -> Unit,
 ) {
-	Row(
-		modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-	) {
-		Column(Modifier.weight(1f)) {
-			Text(
-				text = item.chapterTitle,
-				style = MaterialTheme.typography.bodyMedium,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis,
-			)
-			Text(
-				text = statusLine(item),
-				style = MaterialTheme.typography.bodySmall,
-				color = if (item.state == DownloadState.FAILED) {
-					MaterialTheme.colorScheme.error
-				} else {
-					MaterialTheme.colorScheme.onSurfaceVariant
-				},
-				maxLines = 2,
-				overflow = TextOverflow.Ellipsis,
-			)
-			if (DownloadState.isActive(item.state)) {
-				LinearProgressIndicator(
-					progress = { item.progress },
-					modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-				)
+	val failed = item.state == DownloadState.FAILED
+	AppListRow(
+		headline = item.chapterTitle,
+		// A failed row goes to `problem`, which draws the warning icon beside it. The
+		// status used to be the error colour and nothing else, so the one state that
+		// needs attention was distinguished by colour alone.
+		supporting = if (failed) null else statusLine(item),
+		problem = if (failed) statusLine(item) else null,
+		progress = if (DownloadState.isActive(item.state)) item.progress else null,
+		trailing = {
+			Row(
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(Space.sm),
+			) {
+				when {
+					item.state == DownloadState.DONE -> TextButton(onClick = onOpen) { Text("Read") }
+					DownloadState.isActive(item.state) -> TextButton(onClick = onCancel) { Text("Cancel") }
+					else -> TextButton(onClick = onRetry) { Text("Retry") }
+				}
+				TextButton(onClick = onDelete) { Text("Delete") }
 			}
-		}
-		Box(Modifier.width(4.dp))
-		when {
-			item.state == DownloadState.DONE -> TextButton(onClick = onOpen) { Text("Read") }
-			DownloadState.isActive(item.state) -> TextButton(onClick = onCancel) { Text("Cancel") }
-			else -> TextButton(onClick = onRetry) { Text("Retry") }
-		}
-		TextButton(onClick = onDelete) { Text("Delete") }
-	}
+		},
+	)
 }
 
 private fun statusLine(item: DownloadItem): String = when (item.state) {

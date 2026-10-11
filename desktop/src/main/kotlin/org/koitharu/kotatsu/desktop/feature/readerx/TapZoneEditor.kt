@@ -26,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import org.koitharu.kotatsu.desktop.ui.SectionHeader
+import org.koitharu.kotatsu.desktop.ui.Space
 
 /**
  * The nine tap regions, laid out as they appear on screen, each one a menu.
@@ -42,13 +44,17 @@ fun TapZoneEditor(
 	isRtl: Boolean = false,
 	onReset: (() -> Unit)? = null,
 ) {
-	Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-		Row(verticalAlignment = Alignment.CenterVertically) {
-			Text("Tap zones", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-			if (onReset != null) {
-				TextButton(onClick = onReset, enabled = grid != TapZoneGrid.DEFAULT) { Text("Reset") }
-			}
-		}
+	Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+		// Same heading component as the colour filter above it and the per-title list
+		// below, with Reset in the trailing slot it already occupied.
+		SectionHeader(
+			text = "Tap zones",
+			trailing = if (onReset == null) {
+				null
+			} else {
+				{ TextButton(onClick = onReset, enabled = grid != TapZoneGrid.DEFAULT) { Text("Reset") } }
+			},
+		)
 		Text(
 			text = if (isRtl) {
 				"Showing what each region does in a right-to-left title, where next and previous swap."
@@ -57,10 +63,12 @@ fun TapZoneEditor(
 			},
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.padding(horizontal = Space.lg),
 		)
 		Column(
 			modifier = Modifier
 				.fillMaxWidth()
+				.padding(horizontal = Space.lg)
 				// Roughly a window's shape, so the cells sit where they would in the reader.
 				.aspectRatio(16f / 10f),
 		) {
@@ -91,7 +99,7 @@ private fun ZoneCell(
 	var open by remember { mutableStateOf(false) }
 	Box(
 		modifier = modifier
-			.padding(2.dp)
+			.padding(Space.hair)
 			.background(action.tint())
 			.border(1.dp, MaterialTheme.colorScheme.outlineVariant)
 			.clickable { open = true },

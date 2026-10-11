@@ -1,29 +1,24 @@
 package org.koitharu.kotatsu.desktop.feature.scrobbling
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * The small UI pieces this area needs.
+ * The small UI pieces this area needs that are specific to tracking.
  *
- * Deliberately a private copy rather than a reach into `desktop/ui/Common.kt` or another
- * feature's helpers: neither is part of `FeatureContext`, and depending on a signature
- * another agent owns is how this area breaks without anyone touching it.
+ * This used to carry a private header, empty-state and note helper, on the grounds that
+ * reaching into another area's composables is how this one breaks without anyone touching
+ * it. That reasoning no longer applies: `desktop/ui/Common.kt` is the app's shared
+ * component contract rather than another feature's internals, so the header is now
+ * `TopBar`, the empty state `EmptyBox` and every failure line `ErrorBox`.
+ *
+ * What is left is what is genuinely local: a timestamp format and the wording for a
+ * service's state.
  */
 
 private val timestampFormat = SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault())
@@ -31,52 +26,21 @@ private val timestampFormat = SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDe
 internal fun formatSyncTime(value: Long?): String =
 	if (value == null || value <= 0L) "never" else timestampFormat.format(Date(value))
 
-/** A title plus optional subtitle and trailing controls, at the top of a screen. */
+/**
+ * One line of secondary text, used for every ordinary status line in this area.
+ *
+ * No error variant any more. It had one, and a failure drawn only in `colorScheme.error`
+ * is a failure announced by colour alone; those sites are `ErrorBox(compact = true)` now,
+ * which carries an icon as well. Removing the parameter is what stops the colour-only
+ * version coming back.
+ */
 @Composable
-internal fun TrackingHeader(
-	title: String,
-	subtitle: String? = null,
-	trailing: @Composable () -> Unit = {},
-) {
-	Row(
-		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(12.dp),
-	) {
-		Column(Modifier.weight(1f)) {
-			Text(text = title, style = MaterialTheme.typography.titleLarge)
-			if (subtitle != null) {
-				Text(
-					text = subtitle,
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-			}
-		}
-		trailing()
-	}
-}
-
-@Composable
-internal fun TrackingEmptyNote(text: String, modifier: Modifier = Modifier) {
-	Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-		Text(
-			text = text,
-			style = MaterialTheme.typography.bodyMedium,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			textAlign = TextAlign.Center,
-			modifier = Modifier.padding(32.dp),
-		)
-	}
-}
-
-/** One line of secondary text, used for every status and error line in this area. */
-@Composable
-internal fun TrackingNote(text: String, isError: Boolean = false) {
+internal fun TrackingNote(text: String, modifier: Modifier = Modifier) {
 	Text(
 		text = text,
 		style = MaterialTheme.typography.bodySmall,
-		color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+		color = MaterialTheme.colorScheme.onSurfaceVariant,
+		modifier = modifier,
 	)
 }
 

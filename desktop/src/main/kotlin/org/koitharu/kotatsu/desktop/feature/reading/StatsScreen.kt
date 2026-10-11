@@ -17,6 +17,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,7 +31,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
+import org.koitharu.kotatsu.desktop.ui.EmptyBox
+import org.koitharu.kotatsu.desktop.ui.LoadingBox
+import org.koitharu.kotatsu.desktop.ui.META_SEPARATOR
+import org.koitharu.kotatsu.desktop.ui.Space
 import org.koitharu.kotatsu.desktop.ui.TopBar
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -56,11 +62,11 @@ fun StatsScreen(context: FeatureContext) {
 			title = "Statistics",
 			subtitle = window.label,
 			trailing = {
-				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-					for (option in StatsWindow.entries) {
-						Button(onClick = { window = option }, enabled = option != window) {
-							Text(option.label)
-						}
+				// Straight into the bar's own Row: it already spaces its children by
+				// Space.sm, so the wrapper this used to carry was a second gap rule.
+				for (option in StatsWindow.entries) {
+					Button(onClick = { window = option }, enabled = option != window) {
+						Text(option.label)
 					}
 				}
 			},
@@ -69,29 +75,51 @@ fun StatsScreen(context: FeatureContext) {
 		when {
 			// Null is "the query has not answered yet", which is a different thing from
 			// an empty table and must not be shown as "nothing read".
-			snapshot == null -> Box(Modifier.fillMaxSize())
+			snapshot == null -> SettlingBox()
 
-			snapshot.isEmpty -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-				Text(
-					text = "Nothing read in this period.\nReading time is recorded as you read.",
-					style = MaterialTheme.typography.bodyMedium,
-					textAlign = TextAlign.Center,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-			}
+			snapshot.isEmpty -> EmptyBox(
+				headline = "Nothing read in this period.",
+				detail = "Reading time is recorded as you read.",
+			)
 
 			else -> StatsBody(snapshot)
 		}
 	}
 }
 
+/**
+ * Blank first, then the shared loading box.
+ *
+ * The report is a local query and usually answers within a frame or two, so a spinner
+ * shown immediately would appear and vanish as a flicker: that is why this area was a
+ * deliberately empty [Box]. An empty window is the wrong answer for the slow case
+ * though, where it reads as "nothing read" — the one thing the null state must not say.
+ * Blank for [SPINNER_DELAY_MS] and `LoadingBox` after it covers both.
+ */
+@Composable
+private fun SettlingBox() {
+	var settled by remember { mutableStateOf(false) }
+	LaunchedEffect(Unit) {
+		delay(SPINNER_DELAY_MS)
+		settled = true
+	}
+	if (settled) {
+		LoadingBox()
+	} else {
+		Box(Modifier.fillMaxSize())
+	}
+}
+
+/** Long enough that a query answering normally never draws a spinner at all. */
+private const val SPINNER_DELAY_MS = 300L
+
 @Composable
 private fun StatsBody(report: StatsReport) {
 	Column(
-		modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-		verticalArrangement = Arrangement.spacedBy(16.dp),
+		modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Space.lg),
+		verticalArrangement = Arrangement.spacedBy(Space.lg),
 	) {
-		Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+		Row(horizontalArrangement = Arrangement.spacedBy(Space.md), modifier = Modifier.fillMaxWidth()) {
 			SummaryTile("Time read", formatDuration(report.totalDuration), Modifier.weight(1f))
 			SummaryTile("Pages", report.totalPages.toString(), Modifier.weight(1f))
 			SummaryTile("Sessions", report.sessions.toString(), Modifier.weight(1f))
@@ -102,7 +130,7 @@ private fun StatsBody(report: StatsReport) {
 			)
 		}
 
-		Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+		Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
 			Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
 				Text("Per day", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
 				Text(
@@ -115,7 +143,7 @@ private fun StatsBody(report: StatsReport) {
 			ChartAxis(report.days.map { it.date })
 		}
 
-		Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+		Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
 			Text("Most read", style = MaterialTheme.typography.titleSmall)
 			val busiest = report.topTitles.maxOfOrNull { it.duration } ?: 0L
 			for (title in report.topTitles) {
@@ -196,8 +224,8 @@ private fun AxisLabel(text: String, align: TextAlign, modifier: Modifier) {
 private fun SummaryTile(label: String, value: String, modifier: Modifier = Modifier) {
 	Card(modifier = modifier) {
 		Column(
-			modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-			verticalArrangement = Arrangement.spacedBy(2.dp),
+			modifier = Modifier.fillMaxWidth().padding(Space.md),
+			verticalArrangement = Arrangement.spacedBy(Space.hair),
 		) {
 			Text(
 				text = label,
@@ -211,8 +239,8 @@ private fun SummaryTile(label: String, value: String, modifier: Modifier = Modif
 
 @Composable
 private fun TitleRow(title: TitleTime, busiest: Long) {
-	Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+	Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
 			Text(
 				text = title.title,
 				style = MaterialTheme.typography.bodyMedium,
@@ -221,7 +249,7 @@ private fun TitleRow(title: TitleTime, busiest: Long) {
 				modifier = Modifier.weight(1f),
 			)
 			Text(
-				text = "${formatDuration(title.duration)}  \u00B7  ${title.pages}p",
+				text = "${formatDuration(title.duration)}$META_SEPARATOR${title.pages}p",
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)

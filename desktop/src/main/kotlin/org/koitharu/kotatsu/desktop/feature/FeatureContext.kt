@@ -87,8 +87,15 @@ interface Feature {
 	/** Label for the navigation rail. */
 	val title: String
 
-    /** Single-character glyph for the navigation rail. */
-	val glyph: String
+	/**
+	 * Material Symbols name for the navigation rail or the Settings tool row.
+	 *
+	 * A name from [org.koitharu.kotatsu.desktop.ui.AppIcons], not a unicode character.
+	 * This replaced `glyph` outright rather than sitting beside it: leaving both would
+	 * let a new area ship a glyph and nobody notice, which is how three features ended
+	 * up drawing the same arrow and two the same star.
+	 */
+	val icon: String
 
 	/**
 	 * Whether this area gets its own place in the navigation rail.

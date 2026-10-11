@@ -37,7 +37,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.window.rememberWindowState
 import org.koitharu.kotatsu.core.util.ext.DebugFlags
+import org.koitharu.kotatsu.desktop.feature.Feature
+import org.koitharu.kotatsu.desktop.ui.AppIcon
+import org.koitharu.kotatsu.desktop.ui.AppIcons
+import org.koitharu.kotatsu.desktop.ui.AppNavRail
 import org.koitharu.kotatsu.desktop.ui.AppState
+import org.koitharu.kotatsu.desktop.ui.DropSauceDarkColors
+import org.koitharu.kotatsu.desktop.ui.DropSauceLightColors
+import org.koitharu.kotatsu.desktop.ui.NavDestination
+import org.koitharu.kotatsu.desktop.ui.NavGroup
 import org.koitharu.kotatsu.desktop.ui.BrowseScreen
 import org.koitharu.kotatsu.desktop.ui.CatalogScreen
 import org.koitharu.kotatsu.desktop.ui.DetailsScreen
@@ -100,13 +108,22 @@ private fun launchUi() = application {
 		val scaled = Density(base.density * settings.uiScale, base.fontScale)
 		CompositionLocalProvider(LocalDensity provides scaled) {
 		MaterialExpressiveTheme(
-			colorScheme = if (dark) darkColorScheme() else lightColorScheme(),
+			colorScheme = if (dark) DropSauceDarkColors else DropSauceLightColors,
 			motionScheme = MotionScheme.expressive(),
 		) {
 			Surface(modifier = Modifier.fillMaxSize()) {
+				// The reader gets the whole window. The rail is how you get anywhere in
+				// this app, so hiding it is not free, but a reading surface permanently
+				// inset by 120 px of chrome in a reading app costs more. D26 governs
+				// what belongs ON the rail, not whether it is drawn over a screen that
+				// was pushed onto the stack; the reader has its own Back, and Escape
+				// leaves. Recorded as a revision in DECISIONS.md.
+				val immersive = state.current.let { it is Screen.Reader || it is Screen.LocalReader }
 				Row(Modifier.fillMaxSize()) {
-					NavRail(state)
-					VerticalDivider()
+					if (!immersive) {
+						AppShellRail(state)
+						VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+					}
 					Box(Modifier.weight(1f)) { Router(state) }
 				}
 			}
@@ -155,65 +172,68 @@ private fun rememberNavigator(state: AppState): FeatureNavigator = remember(stat
 }
 
 @Composable
-private fun NavRail(state: AppState) {
-	NavigationRail {
-		Spacer(Modifier.height(12.dp))
-		// The tools live inside Settings now, so their dot has to surface here or it is
-		// invisible until someone happens to open Settings.
-		val toolsBadged by remember(state) { state.toolsBadge() }.collectAsState(0)
-		for ((destination, item) in ROOTS) {
-			val (glyph, label) = item
-			NavigationRailItem(
-				selected = state.root == destination,
-				onClick = { state.selectRoot(destination) },
-				// A glyph rather than an empty icon slot: NavigationRailItem sizes its
-				// hit target around the icon, so an empty one leaves an item that is
-				// awkward to click even though it renders fine.
-				icon = {
-					BadgedBox(
-						badge = {
-							// A plain dot for Settings: it stands in for several areas at
-							// once, and a number summed across them would be adding up
-							// things that have nothing to do with each other.
-							if (destination == Screen.Settings && toolsBadged > 0) Badge()
-						},
-					) {
-						Text(glyph, style = MaterialTheme.typography.titleMedium)
-					}
-				},
-				label = { Text(label) },
-			)
+private fun AppShellRail(state: AppState) {
+	// The tools live inside Settings, so their dot has to surface here or it is
+	// invisible until someone happens to open Settings.
+	val toolsBadged by remember(state) { state.toolsBadge() }.collectAsState(0)
+	val features = state.features.filter { it.isTopLevel }
+	val featureBadges = features.map { feature ->
+		// Collected for as long as the window is open, which is also what lets an area
+		// do the work that answers the question. Most areas never emit anything.
+		feature.id to remember(feature) { feature.badge(state.featureContext) }.collectAsState(0).value
+	}.toMap()
+	val destinations = buildList {
+		add(NavDestination(Screen.Library, "Library", AppIcons.LIBRARY, NavGroup.Read))
+		for (feature in features) {
+			if (feature.id in READ_GROUP) {
+				add(featureDestination(feature, NavGroup.Read, featureBadges[feature.id] ?: 0))
+			}
 		}
-		// Feature areas append themselves, so integrating one is a list entry rather
-		// than an edit to this rail.
-		for (feature in state.features.filter { it.isTopLevel }) {
-			val destination = Screen.FeatureRoot(feature.id)
-			// Collected for as long as the window is open, which is also what lets an
-			// area do the work that answers the question. Most areas never emit true.
-			val badged by remember(feature) { feature.badge(state.featureContext) }
-				.collectAsState(0)
-			NavigationRailItem(
-				selected = state.root == destination,
-				onClick = { state.selectRoot(destination) },
-				icon = {
-					BadgedBox(
-						badge = {
-							// The number, not a dot. "Something is new" and "twelve things
-							// are new" decide different things. Capped in the text rather
-							// than the value, so a big number cannot widen the rail.
-							if (badged > 0) {
-								Badge { Text(if (badged > 99) "99+" else badged.toString()) }
-							}
-						},
-					) {
-						Text(feature.glyph, style = MaterialTheme.typography.titleMedium)
-					}
-				},
-				label = { Text(feature.title) },
-			)
+		add(NavDestination(Screen.History, "History", AppIcons.HISTORY, NavGroup.Read))
+		add(NavDestination(Screen.Catalog, "Sources", AppIcons.SOURCES, NavGroup.Find))
+		for (feature in features) {
+			if (feature.id in FIND_GROUP) {
+				add(featureDestination(feature, NavGroup.Find, featureBadges[feature.id] ?: 0))
+			}
 		}
+		for (feature in features) {
+			if (feature.id !in READ_GROUP && feature.id !in FIND_GROUP) {
+				add(featureDestination(feature, NavGroup.KeepUp, featureBadges[feature.id] ?: 0))
+			}
+		}
+		add(
+			NavDestination(
+				key = Screen.Settings,
+				label = "Settings",
+				icon = AppIcons.SETTINGS,
+				group = NavGroup.System,
+				badge = toolsBadged,
+				// A dot rather than a number: it stands in for several areas at once,
+				// and a sum across them would be adding up unrelated things.
+				badgeAsDot = true,
+			),
+		)
 	}
+	AppNavRail(
+		destinations = destinations,
+		selectedKey = state.root,
+		onSelect = { state.selectRoot(it.key as Screen.Root) },
+	)
 }
+
+private fun featureDestination(feature: Feature, group: NavGroup, badge: Int) = NavDestination(
+	key = Screen.FeatureRoot(feature.id),
+	label = feature.title,
+	icon = feature.icon,
+	group = group,
+	badge = badge,
+)
+
+/** Areas that are things you already have. Anything unlisted is something that changed. */
+private val READ_GROUP = setOf("bookmarks", "local", "downloads")
+
+/** Areas that are things you do not have yet. */
+private val FIND_GROUP = setOf("discover", "suggestions")
 
 /** A slim way out of a tool that was opened from Settings. */
 @Composable
@@ -222,16 +242,11 @@ private fun BackToSettings(onBack: () -> Unit) {
 		modifier = Modifier.fillMaxWidth().clickable(onClick = onBack).padding(horizontal = 12.dp, vertical = 6.dp),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
-		Text("\u2039  Settings", style = MaterialTheme.typography.labelLarge)
+		AppIcon(AppIcons.CHEVRON_LEFT, contentDescription = null)
+		Text("Settings", style = MaterialTheme.typography.labelLarge)
 	}
 }
 
-private val ROOTS: List<Pair<Screen.Root, Pair<String, String>>> = listOf(
-	Screen.Library to ("\u2605" to "Library"),
-	Screen.Catalog to ("\u25A6" to "Sources"),
-	Screen.History to ("\u21BA" to "History"),
-	Screen.Settings to ("\u2699" to "Settings"),
-)
 
 @Composable
 private fun Router(state: AppState) {

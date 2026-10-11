@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import org.koitharu.kotatsu.desktop.feature.Feature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
+import org.koitharu.kotatsu.desktop.ui.AppIcons
 
 /**
  * How the organise area plugs into the shell.
@@ -18,7 +19,7 @@ object CurateFeature : Feature {
 
 	override val title: String = "Organise"
 
-	override val glyph: String = "☰"
+	override val icon: String = AppIcons.ORGANISE
 
 	override val isTopLevel: Boolean = false
 

@@ -1,20 +1,19 @@
 package org.koitharu.kotatsu.desktop.feature.discover
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -40,8 +39,15 @@ import kotlinx.coroutines.withContext
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.search.MAX_FRUITLESS_PAGES
 import org.koitharu.kotatsu.desktop.search.rankForQuery
+import org.koitharu.kotatsu.desktop.ui.AppIcon
+import org.koitharu.kotatsu.desktop.ui.AppIcons
+import org.koitharu.kotatsu.desktop.ui.CoverCard
+import org.koitharu.kotatsu.desktop.ui.EmptyBox
 import org.koitharu.kotatsu.desktop.ui.ErrorBox
 import org.koitharu.kotatsu.desktop.ui.LoadingBox
+import org.koitharu.kotatsu.desktop.ui.LoadingStrip
+import org.koitharu.kotatsu.desktop.ui.NoticeBar
+import org.koitharu.kotatsu.desktop.ui.Space
 import org.koitharu.kotatsu.desktop.ui.onEnter
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
@@ -113,17 +119,17 @@ fun SourceBrowseScreen(
 			appliedCount = ready?.let { countActive(it.spec.sanitize(applied)) } ?: 0,
 		)
 		if (ready == null) {
-			LoadingBox()
+			// Said rather than left blank: asking a source what it can filter on is a
+			// network call to a third-party site and can take several seconds.
+			LoadingBox(label = "Asking ${source.title} what it can filter on")
 			return@Column
 		}
 		val spec = ready.spec
 		ready.optionsFailed?.let { reason ->
-			Text(
+			NoticeBar(
 				text = "This source did not return its filter lists ($reason), so only the " +
 					"controls that need no list are available.",
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.error,
-				modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+				icon = AppIcons.WARNING,
 			)
 		}
 		Row(Modifier.fillMaxSize()) {
@@ -168,9 +174,9 @@ private fun BrowseToolbar(
 	appliedCount: Int,
 ) {
 	Row(
-		modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+		modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg, vertical = Space.sm),
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		horizontalArrangement = Arrangement.spacedBy(Space.sm),
 	) {
 		Column(Modifier.weight(1f)) {
 			Text(source.title, style = MaterialTheme.typography.titleMedium)
@@ -188,6 +194,7 @@ private fun BrowseToolbar(
 				value = queryText,
 				onValueChange = onQueryText,
 				label = { Text("Search this source, then press Enter") },
+				leadingIcon = { AppIcon(AppIcons.DISCOVER, contentDescription = null) },
 				singleLine = true,
 				modifier = Modifier.weight(2f).onEnter(onSubmitQuery),
 			)
@@ -199,6 +206,8 @@ private fun BrowseToolbar(
 			)
 		}
 		TextButton(onClick = onToggleFilters) {
+			AppIcon(AppIcons.FILTER, contentDescription = null)
+			Spacer(Modifier.width(Space.xs))
 			Text(
 				when {
 					showFilters -> "Hide filters"
@@ -298,122 +307,88 @@ private fun ResultGrid(
 
 	Column(modifier.fillMaxSize()) {
 		if (ranked.hiddenCount > 0) {
-			Row(
-				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-			) {
-				Text(
-					text = "${ranked.hiddenCount} of ${items.size} returned " +
-						"${if (ranked.hiddenCount == 1) "title has" else "titles have"} nothing to do " +
-						"with \"${applied.query}\"",
-					style = MaterialTheme.typography.labelSmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.weight(1f),
-				)
-				TextButton(onClick = { showLoose = !showLoose }) {
-					Text(if (showLoose) "Hide them" else "Show them")
-				}
-			}
+			NoticeBar(
+				text = "${ranked.hiddenCount} of ${items.size} returned " +
+					"${if (ranked.hiddenCount == 1) "title has" else "titles have"} nothing to do " +
+					"with \"${applied.query}\"",
+				action = {
+					TextButton(onClick = { showLoose = !showLoose }) {
+						Text(if (showLoose) "Hide them" else "Show them")
+					}
+				},
+			)
 		}
 		if (stalled && !exhausted) {
-			Row(
-				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
-				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-			) {
-				Text(
-					text = "Stopped paging: the last $MAX_FRUITLESS_PAGES pages held no match for " +
-						"\"${applied.query}\".",
-					style = MaterialTheme.typography.labelSmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.weight(1f),
-				)
-				TextButton(
-					onClick = {
-						fruitlessPages = 0
-						uiScope.launch { loadMore() }
-					},
-				) {
-					Text("Keep looking")
-				}
-			}
+			NoticeBar(
+				text = "Stopped paging: the last $MAX_FRUITLESS_PAGES pages held no match for " +
+					"\"${applied.query}\".",
+				action = {
+					TextButton(
+						onClick = {
+							fruitlessPages = 0
+							uiScope.launch { loadMore() }
+						},
+					) {
+						Text("Keep looking")
+					}
+				},
+			)
 		}
 		if (loading && items.isNotEmpty()) {
 			// A thin "more on the way" line above the grid, so the page the user is
 			// reading does not move while the next one loads.
-			Row(
-				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-			) {
-				CircularProgressIndicator(modifier = Modifier.size(14.dp))
-				Text(
-					text = "Loading more",
-					style = MaterialTheme.typography.labelSmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-			}
+			LoadingStrip(label = "Loading more")
 		}
 		when {
-			items.isEmpty() && loading -> LoadingBox()
+			items.isEmpty() && loading -> LoadingBox(label = "Asking ${source.title}")
 
 			items.isEmpty() && error != null -> ErrorBox(
 				message = "This source rejected that request.\n$error",
 				onRetry = { uiScope.launch { loadMore() } },
 			)
 
-			items.isEmpty() -> Box(Modifier.fillMaxSize()) {
-				Text(
-					text = if (applied.isEmpty) {
-						"This source returned nothing at all."
-					} else {
-						"Nothing matches those filters."
-					},
-					modifier = Modifier.padding(24.dp),
-					style = MaterialTheme.typography.bodyMedium,
-				)
-			}
+			items.isEmpty() -> EmptyBox(
+				headline = if (applied.isEmpty) "This source returned nothing" else "Nothing matches",
+				detail = if (applied.isEmpty) {
+					"${source.title} answered the request with an empty list."
+				} else {
+					"Nothing in ${source.title} matches those filters."
+				},
+				icon = AppIcons.DISCOVER,
+			)
 
-			shown.isEmpty() -> Box(Modifier.fillMaxSize()) {
-				// Rows came back and every one of them was held back, which is a different
-				// thing to say than "nothing found": the toggle above is the way out.
-				Text(
-					text = "${items.size} ${if (items.size == 1) "title" else "titles"} came back " +
-						"and none of them matches \"${applied.query}\".",
-					modifier = Modifier.padding(24.dp),
-					style = MaterialTheme.typography.bodyMedium,
-				)
-			}
+			// Rows came back and every one of them was held back, which is a different
+			// thing to say than "nothing found". No action here: this state only happens
+			// when every row is hidden, so the notice above is already offering the way
+			// out and a second identical button would be the only other thing on screen.
+			shown.isEmpty() -> EmptyBox(
+				headline = "Nothing that matches \"${applied.query}\"",
+				detail = "${items.size} ${if (items.size == 1) "title" else "titles"} came back " +
+					"and none of them matches it.",
+				icon = AppIcons.DISCOVER,
+			)
 
 			else -> Column(Modifier.fillMaxSize()) {
 				if (error != null) {
 					// Paging failed with results already on screen. Keep them.
-					Row(
-						modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(8.dp),
-					) {
-						Text(
-							text = "Could not load more: $error",
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.error,
-							modifier = Modifier.weight(1f),
-						)
-						TextButton(onClick = { uiScope.launch { loadMore() } }) { Text("Retry") }
-					}
+					ErrorBox(
+						message = "Could not load more: $error",
+						onRetry = { uiScope.launch { loadMore() } },
+						compact = true,
+					)
 				}
 				LazyVerticalGrid(
 					columns = GridCells.Adaptive(minSize = 150.dp),
 					state = gridState,
-					contentPadding = PaddingValues(12.dp),
-					horizontalArrangement = Arrangement.spacedBy(12.dp),
-					verticalArrangement = Arrangement.spacedBy(12.dp),
+					contentPadding = PaddingValues(Space.md),
+					horizontalArrangement = Arrangement.spacedBy(Space.md),
+					verticalArrangement = Arrangement.spacedBy(Space.md),
 					modifier = Modifier.fillMaxSize(),
 				) {
 					itemsIndexed(shown, key = { i, m -> "${m.id}-$i" }) { _, manga ->
 						CoverCard(
-							manga = manga,
+							title = manga.title,
+							coverUrl = manga.coverUrl,
 							client = session.client,
 							images = context.images,
 							onClick = { onOpen(manga) },

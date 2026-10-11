@@ -23,11 +23,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.koitharu.kotatsu.desktop.feature.Feature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
+import org.koitharu.kotatsu.desktop.ui.AppIcons
+import org.koitharu.kotatsu.desktop.ui.SectionHeader
+import org.koitharu.kotatsu.desktop.ui.Space
+import org.koitharu.kotatsu.desktop.ui.TopBar
 
 /**
  * Reader behaviour that is configured outside the reader.
@@ -43,7 +46,7 @@ object ReaderExtrasFeature : Feature {
 
 	override val title: String = "Reader"
 
-	override val glyph: String = "▣"
+	override val icon: String = AppIcons.READER_PREFS
 
 	override val isTopLevel: Boolean = false
 
@@ -69,61 +72,67 @@ private fun ReaderExtrasScreen(context: FeatureContext) {
 	val overrides by overridesFlow.collectAsState(initial = emptyList())
 	val scope = context.scope
 
-	Column(
-		modifier = Modifier
-			.fillMaxSize()
-			.verticalScroll(rememberScrollState())
-			.padding(horizontal = 16.dp, vertical = 12.dp),
-		verticalArrangement = Arrangement.spacedBy(16.dp),
-	) {
-		Text("Reader", style = MaterialTheme.typography.titleLarge)
-
-		ToggleRow(
-			title = "Double-page mode",
-			subtitle = "Show two pages side by side in paged mode.",
-			checked = prefs.doublePage,
-			onChange = { scope.launch { store.setDoublePage(it) } },
+	Column(Modifier.fillMaxSize()) {
+		TopBar(
+			title = "Reader",
+			subtitle = "How pages are presented, and what has been changed for one title.",
 		)
-		ToggleRow(
-			title = "First page stands alone",
-			subtitle = "Turn this on for a book that opens with a cover. It shifts every " +
-				"facing pair by one, so if the pairs look wrong throughout, this is the switch.",
-			checked = prefs.coverFirst,
-			enabled = prefs.doublePage,
-			onChange = { scope.launch { store.setCoverFirst(it) } },
-		)
+		// Vertical padding only. The section headers below carry the screen gutter
+		// themselves, so a padded parent would indent every heading past its own content.
+		Column(
+			modifier = Modifier
+				.fillMaxSize()
+				.verticalScroll(rememberScrollState())
+				.padding(vertical = Space.md),
+			verticalArrangement = Arrangement.spacedBy(Space.lg),
+		) {
+			ToggleRow(
+				title = "Double-page mode",
+				subtitle = "Show two pages side by side in paged mode.",
+				checked = prefs.doublePage,
+				onChange = { scope.launch { store.setDoublePage(it) } },
+			)
+			ToggleRow(
+				title = "First page stands alone",
+				subtitle = "Turn this on for a book that opens with a cover. It shifts every " +
+					"facing pair by one, so if the pairs look wrong throughout, this is the switch.",
+				checked = prefs.coverFirst,
+				enabled = prefs.doublePage,
+				onChange = { scope.launch { store.setCoverFirst(it) } },
+			)
 
-		HorizontalDivider()
+			HorizontalDivider()
 
-		ColorFilterEditor(
-			params = prefs.colorFilter,
-			onChange = { scope.launch { store.setColorFilter(it) } },
-			onReset = { scope.launch { store.setColorFilter(ReaderColorParams.DEFAULT) } },
-		)
+			ColorFilterEditor(
+				params = prefs.colorFilter,
+				onChange = { scope.launch { store.setColorFilter(it) } },
+				onReset = { scope.launch { store.setColorFilter(ReaderColorParams.DEFAULT) } },
+			)
 
-		HorizontalDivider()
+			HorizontalDivider()
 
-		TapZoneEditor(
-			grid = prefs.tapZones,
-			onChange = { scope.launch { store.setTapZones(it) } },
-			// The desktop reader is webtoon-only, so there is no right-to-left case.
-			isRtl = false,
-			onReset = { scope.launch { store.setTapZones(TapZoneGrid.DEFAULT) } },
-		)
+			TapZoneEditor(
+				grid = prefs.tapZones,
+				onChange = { scope.launch { store.setTapZones(it) } },
+				// The desktop reader is webtoon-only, so there is no right-to-left case.
+				isRtl = false,
+				onReset = { scope.launch { store.setTapZones(TapZoneGrid.DEFAULT) } },
+			)
 
-		HorizontalDivider()
+			HorizontalDivider()
 
-		OverridesSection(
-			overrides = overrides,
-			filteredTitles = prefs.titleFilters.keys,
-			onSave = { edited -> scope.launch { repository.saveExisting(edited) } },
-			onClear = { mangaId ->
-				scope.launch {
-					repository.clear(mangaId)
-					store.clearTitleFilter(mangaId)
-				}
-			},
-		)
+			OverridesSection(
+				overrides = overrides,
+				filteredTitles = prefs.titleFilters.keys,
+				onSave = { edited -> scope.launch { repository.saveExisting(edited) } },
+				onClear = { mangaId ->
+					scope.launch {
+						repository.clear(mangaId)
+						store.clearTitleFilter(mangaId)
+					}
+				},
+			)
+		}
 	}
 }
 
@@ -134,13 +143,20 @@ private fun OverridesSection(
 	onSave: (TitlePrefs) -> Unit,
 	onClear: (Long) -> Unit,
 ) {
-	Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-		Text("Titles with their own settings", style = MaterialTheme.typography.titleSmall)
+	Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+		SectionHeader(
+			text = "Titles with their own settings",
+			count = (overrides.map { it.prefs.mangaId } + filteredTitles).distinct().size
+				.takeIf { it > 0 },
+		)
 		if (overrides.isEmpty() && filteredTitles.isEmpty()) {
+			// Not an EmptyBox: this is one section of a settings screen, and a centred
+			// full-height placeholder here would push the sections above it off screen.
 			Text(
 				text = "Nothing yet. Settings changed for one title while reading it show up here.",
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.padding(horizontal = Space.lg),
 			)
 			return@Column
 		}
@@ -161,7 +177,10 @@ private fun OverridesSection(
 		// impossible to undo from here.
 		val filterOnly = filteredTitles - overrides.map { it.prefs.mangaId }.toSet()
 		for (mangaId in filterOnly.sorted()) {
-			Row(verticalAlignment = Alignment.CenterVertically) {
+			Row(
+				modifier = Modifier.padding(horizontal = Space.lg),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
 				Column(Modifier.weight(1f)) {
 					Text("Title #$mangaId", style = MaterialTheme.typography.bodyMedium)
 					Text(
@@ -195,7 +214,10 @@ private fun OverrideRow(
 		if (hasOwnFilter) add("colour filter")
 	}.joinToString(", ")
 
-	Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+	Row(
+		modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
 		Column(Modifier.weight(1f)) {
 			Text(
 				text = entry.prefs.titleOverride ?: entry.title,
@@ -215,9 +237,12 @@ private fun OverrideRow(
 		TextButton(onClick = onClear) { Text("Clear") }
 	}
 	if (expanded) {
+		// Indented by one gutter to show it belongs to the row above. The editor's own
+		// children add the gutter on top of that, so everything inside the panel lines up
+		// on the same edge, chips included.
 		Column(
-			modifier = Modifier.fillMaxWidth().padding(start = 16.dp, bottom = 12.dp),
-			verticalArrangement = Arrangement.spacedBy(8.dp),
+			modifier = Modifier.fillMaxWidth().padding(start = Space.lg, bottom = Space.md),
+			verticalArrangement = Arrangement.spacedBy(Space.sm),
 		) {
 			TitlePrefsEditor(
 				prefs = draft,
@@ -227,7 +252,10 @@ private fun OverrideRow(
 					onSave(draft)
 				},
 			)
-			Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+			Row(
+				modifier = Modifier.padding(horizontal = Space.lg),
+				horizontalArrangement = Arrangement.spacedBy(Space.sm),
+			) {
 				TextButton(onClick = { draft = entry.prefs }, enabled = draft != entry.prefs) {
 					Text("Revert")
 				}
@@ -247,7 +275,11 @@ private fun ToggleRow(
 	onChange: (Boolean) -> Unit,
 	enabled: Boolean = true,
 ) {
-	Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+	Row(
+		modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
+		horizontalArrangement = Arrangement.spacedBy(Space.lg),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
 		Column(Modifier.weight(1f)) {
 			Text(title, style = MaterialTheme.typography.bodyMedium)
 			Text(

@@ -6,6 +6,7 @@ import org.koitharu.kotatsu.desktop.feature.Feature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
 import org.koitharu.kotatsu.shared.db.LocalMangaEntity
+import org.koitharu.kotatsu.desktop.ui.AppIcons
 
 /**
  * The richer importer for files on disk.
@@ -23,7 +24,7 @@ object LocalExtrasFeature : Feature {
 	override val title = "Import"
 
 	/** A box with an arrow into it: bringing structure in, not just a file. */
-	override val glyph = "⤓"
+	override val icon: String = AppIcons.IMPORT
 
 	override val isTopLevel: Boolean = false
 

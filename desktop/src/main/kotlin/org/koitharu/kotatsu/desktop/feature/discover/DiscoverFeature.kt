@@ -1,19 +1,18 @@
 package org.koitharu.kotatsu.desktop.feature.discover
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Button
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -23,10 +22,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import kotlinx.coroutines.flow.first
 import org.koitharu.kotatsu.desktop.feature.Feature
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
@@ -35,6 +36,12 @@ import org.koitharu.kotatsu.desktop.source.SourceRegistry
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.shared.settings.SettingsData
 import java.util.Locale
+import org.koitharu.kotatsu.desktop.ui.AppIcon
+import org.koitharu.kotatsu.desktop.ui.AppIcons
+import org.koitharu.kotatsu.desktop.ui.AppListRow
+import org.koitharu.kotatsu.desktop.ui.EmptyBox
+import org.koitharu.kotatsu.desktop.ui.Space
+import org.koitharu.kotatsu.desktop.ui.TopBar
 
 /**
  * Finding something to read: one source in depth, or every source at once.
@@ -49,7 +56,7 @@ object DiscoverFeature : Feature {
 
 	override val title: String = "Discover"
 
-	override val glyph: String = "⌕"
+	override val icon: String = AppIcons.DISCOVER
 
 	@Composable
 	override fun Content(context: FeatureContext, navigator: FeatureNavigator) {
@@ -83,25 +90,26 @@ private fun DiscoverRoot(context: FeatureContext, navigator: FeatureNavigator) {
 	var browsing: MangaParserSource? by remember(context) { mutableStateOf(null) }
 
 	Column(Modifier.fillMaxSize()) {
-		Row(
-			modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(8.dp),
-		) {
-			for (entry in DiscoverMode.entries) {
-				FilterChip(
-					selected = mode == entry,
-					onClick = { mode = entry },
-					label = { Text(entry.label) },
-				)
-			}
-			Spacer(Modifier.weight(1f))
-			val current = browsing
-			if (mode == DiscoverMode.ONE_SOURCE && current != null) {
-				TextButton(onClick = { browsing = null }) { Text("Change source") }
-			}
-		}
-		HorizontalDivider()
+		val current = browsing
+		TopBar(
+			title = DiscoverFeature.title,
+			// The number that decides what a search will actually do was buried in the
+			// label of a text button at the end of the search row. In browse mode the
+			// source's own name is already the heading below, so this does not repeat it.
+			subtitle = when {
+				mode == DiscoverMode.EVERYWHERE ->
+					"${selected.size} of ${selectable.size} sources selected"
+
+				current == null -> "${selectable.size} sources to choose from"
+				else -> null
+			},
+			trailing = {
+				if (mode == DiscoverMode.ONE_SOURCE && current != null) {
+					TextButton(onClick = { browsing = null }) { Text("Change source") }
+				}
+			},
+		)
+		ModeTabs(mode = mode, onMode = { mode = it })
 		when (mode) {
 			DiscoverMode.EVERYWHERE -> GlobalSearchScreen(
 				context = context,
@@ -114,7 +122,6 @@ private fun DiscoverRoot(context: FeatureContext, navigator: FeatureNavigator) {
 			)
 
 			DiscoverMode.ONE_SOURCE -> {
-				val current = browsing
 				if (current == null) {
 					SourceList(
 						sources = selectable,
@@ -129,6 +136,53 @@ private fun DiscoverRoot(context: FeatureContext, navigator: FeatureNavigator) {
 					)
 				}
 			}
+		}
+	}
+}
+
+/**
+ * The two modes, as a tab row.
+ *
+ * They were `FilterChip`s sitting directly above the recent-query chips, so two
+ * completely different kinds of control were drawn identically: one picked a mode, the
+ * other ran a search. Two mutually exclusive modes that each own the whole screen below
+ * them are what a tab row is for, and it carries the mode's own heading weight rather
+ * than borrowing a filter's.
+ *
+ * Left and right move the selection, which is the convention for a tab row and is what
+ * chips did not give: as chips, every mode was a separate Tab stop on the way to the
+ * search box.
+ */
+@Composable
+private fun ModeTabs(mode: DiscoverMode, onMode: (DiscoverMode) -> Unit) {
+	val entries = DiscoverMode.entries
+	PrimaryTabRow(
+		selectedTabIndex = mode.ordinal,
+		modifier = Modifier
+			.fillMaxWidth()
+			.focusGroup()
+			.onPreviewKeyEvent { event ->
+				if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+				val step = when (event.key) {
+					Key.DirectionLeft -> -1
+					Key.DirectionRight -> 1
+					else -> return@onPreviewKeyEvent false
+				}
+				val next = mode.ordinal + step
+				if (next in entries.indices) {
+					onMode(entries[next])
+					true
+				} else {
+					false
+				}
+			},
+	) {
+		for (entry in entries) {
+			Tab(
+				selected = mode == entry,
+				onClick = { onMode(entry) },
+				text = { Text(entry.label) },
+			)
 		}
 	}
 }
@@ -205,39 +259,44 @@ private fun SourceList(
 			value = query,
 			onValueChange = { query = it },
 			label = { Text("Filter by name or language code") },
+			leadingIcon = { AppIcon(AppIcons.DISCOVER, contentDescription = null) },
+			trailingIcon = {
+				if (query.isNotEmpty()) {
+					IconButton(onClick = { query = "" }) {
+						AppIcon(AppIcons.CLOSE, contentDescription = "Clear the filter")
+					}
+				}
+			},
 			singleLine = true,
-			modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+			modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg, vertical = Space.sm),
 		)
 		Text(
 			text = "${shown.size} of ${sources.size} shown, $totalUsable in the catalogue",
 			style = MaterialTheme.typography.labelSmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			modifier = Modifier.padding(horizontal = 16.dp),
+			modifier = Modifier.padding(horizontal = Space.lg),
 		)
+		if (shown.isEmpty()) {
+			EmptyBox(
+				headline = "No source matches that",
+				detail = "Nothing in the catalogue is called \"${query.trim()}\", and it is not a " +
+					"language code either.",
+				icon = AppIcons.DISCOVER,
+				action = { Button(onClick = { query = "" }) { Text("Clear the filter") } },
+			)
+			return@Column
+		}
 		LazyColumn(Modifier.fillMaxSize()) {
 			items(shown, key = { it.name }) { source ->
-				Row(
-					modifier = Modifier
-						.fillMaxWidth()
-						.clickable { onPick(source) }
-						.padding(horizontal = 20.dp, vertical = 10.dp),
-					verticalAlignment = Alignment.CenterVertically,
-					horizontalArrangement = Arrangement.spacedBy(12.dp),
-				) {
-					Text(
-						text = source.title,
-						style = MaterialTheme.typography.bodyLarge,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis,
-						modifier = Modifier.weight(1f),
-					)
-					Text(
-						text = source.locale,
-						style = MaterialTheme.typography.labelSmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-				}
-				HorizontalDivider()
+				// The divider that used to separate these was the only thing carrying the
+				// structure of a 658-row list, at 1.99:1. AppListRow carries it with a
+				// minimum height and a hover state instead.
+				AppListRow(
+					headline = source.title,
+					onClick = { onPick(source) },
+					meta = listOfNotNull(source.locale.takeIf { it.isNotBlank() }),
+					trailing = { AppIcon(AppIcons.CHEVRON_RIGHT, contentDescription = null) },
+				)
 			}
 		}
 	}

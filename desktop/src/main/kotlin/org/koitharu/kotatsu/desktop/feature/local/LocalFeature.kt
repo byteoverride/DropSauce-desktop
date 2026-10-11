@@ -11,6 +11,7 @@ import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaPage
 import org.koitharu.kotatsu.parsers.model.MangaSource
 import org.koitharu.kotatsu.shared.db.LocalMangaEntity
+import org.koitharu.kotatsu.desktop.ui.AppIcons
 
 /**
  * Comics imported from disk.
@@ -28,7 +29,7 @@ object LocalFeature : Feature {
 	override val title = "Local"
 
 	/** A downwards arrow to a bar: bringing something in from outside. */
-	override val glyph = "⤓"
+	override val icon: String = AppIcons.LOCAL
 
 	/**
 	 * Decoded covers and pages, held on the feature rather than per composition so
