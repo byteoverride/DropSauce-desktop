@@ -22,6 +22,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
+import org.koitharu.kotatsu.desktop.search.MAX_FRUITLESS_PAGES
+import org.koitharu.kotatsu.desktop.search.rankForQuery
 import org.koitharu.kotatsu.desktop.ui.ErrorBox
 import org.koitharu.kotatsu.desktop.ui.LoadingBox
 import org.koitharu.kotatsu.desktop.ui.onEnter
@@ -221,7 +224,28 @@ private fun ResultGrid(
 	var loading by remember(source, applied) { mutableStateOf(false) }
 	var exhausted by remember(source, applied) { mutableStateOf(false) }
 	var error: String? by remember(source, applied) { mutableStateOf(null) }
+	var showLoose by remember(source, applied) { mutableStateOf(false) }
+	/**
+	 * Consecutive pages that answered the query with nothing.
+	 *
+	 * A loose source asked for a title it does not have answers with its front page and
+	 * keeps answering, so paging towards a screenful of matches would walk the whole site.
+	 * After [MAX_FRUITLESS_PAGES] the screen stops and offers the choice instead.
+	 */
+	var fruitlessPages by remember(source, applied) { mutableStateOf(0) }
 	val uiScope = rememberCoroutineScope()
+
+	// What the source said, ranked against the query; see rankForQuery.
+	//
+	// derivedStateOf rather than a plain val: the paging collector below runs in a
+	// coroutine that outlives the composition it started in, and a plain val would be
+	// captured once, at a point where the list is still empty. These read live there.
+	val ranked by remember(source, applied) {
+		derivedStateOf { rankForQuery(applied.query, items.toList()) }
+	}
+	val shown by remember(source, applied) {
+		derivedStateOf { if (showLoose) ranked.all else ranked.shown }
+	}
 
 	suspend fun loadMore() {
 		if (loading || exhausted) return
@@ -233,11 +257,24 @@ private fun ResultGrid(
 				session.parser.getList(offset, spec.sortOrderFor(applied), spec.toFilter(applied))
 			}
 		}.onSuccess { page ->
-			if (page.isEmpty()) exhausted = true else items.addAll(page)
+			if (page.isEmpty()) {
+				exhausted = true
+			} else {
+				items.addAll(page)
+				fruitlessPages = if (rankForQuery(applied.query, page).shown.isEmpty()) {
+					fruitlessPages + 1
+				} else {
+					0
+				}
+			}
 		}.onFailure { e ->
 			error = e.describe()
 		}
 		loading = false
+	}
+
+	val stalled by remember(source, applied) {
+		derivedStateOf { fruitlessPages >= MAX_FRUITLESS_PAGES }
 	}
 
 	val gridState = rememberLazyGridState()
@@ -247,14 +284,61 @@ private fun ResultGrid(
 			.distinctUntilChanged()
 			.collect { last ->
 				// Only page on once the first page is in; otherwise an empty grid at
-				// index 0 asks for more before anything has arrived.
-				if (items.isNotEmpty() && error == null && last >= items.size - GRID_PREFETCH_DISTANCE) {
+				// index 0 asks for more before anything has arrived. Measured against
+				// what is on screen rather than what was fetched: with the unrelated rows
+				// held back those two numbers differ, and paging off the fetched count
+				// would stop while the grid still had room.
+				if (items.isNotEmpty() && error == null && !stalled &&
+					last >= shown.size - GRID_PREFETCH_DISTANCE
+				) {
 					loadMore()
 				}
 			}
 	}
 
 	Column(modifier.fillMaxSize()) {
+		if (ranked.hiddenCount > 0) {
+			Row(
+				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				Text(
+					text = "${ranked.hiddenCount} of ${items.size} returned " +
+						"${if (ranked.hiddenCount == 1) "title has" else "titles have"} nothing to do " +
+						"with \"${applied.query}\"",
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.weight(1f),
+				)
+				TextButton(onClick = { showLoose = !showLoose }) {
+					Text(if (showLoose) "Hide them" else "Show them")
+				}
+			}
+		}
+		if (stalled && !exhausted) {
+			Row(
+				modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				Text(
+					text = "Stopped paging: the last $MAX_FRUITLESS_PAGES pages held no match for " +
+						"\"${applied.query}\".",
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.weight(1f),
+				)
+				TextButton(
+					onClick = {
+						fruitlessPages = 0
+						uiScope.launch { loadMore() }
+					},
+				) {
+					Text("Keep looking")
+				}
+			}
+		}
 		if (loading && items.isNotEmpty()) {
 			// A thin "more on the way" line above the grid, so the page the user is
 			// reading does not move while the next one loads.
@@ -291,6 +375,17 @@ private fun ResultGrid(
 				)
 			}
 
+			shown.isEmpty() -> Box(Modifier.fillMaxSize()) {
+				// Rows came back and every one of them was held back, which is a different
+				// thing to say than "nothing found": the toggle above is the way out.
+				Text(
+					text = "${items.size} ${if (items.size == 1) "title" else "titles"} came back " +
+						"and none of them matches \"${applied.query}\".",
+					modifier = Modifier.padding(24.dp),
+					style = MaterialTheme.typography.bodyMedium,
+				)
+			}
+
 			else -> Column(Modifier.fillMaxSize()) {
 				if (error != null) {
 					// Paging failed with results already on screen. Keep them.
@@ -316,7 +411,7 @@ private fun ResultGrid(
 					verticalArrangement = Arrangement.spacedBy(12.dp),
 					modifier = Modifier.fillMaxSize(),
 				) {
-					itemsIndexed(items, key = { i, m -> "${m.id}-$i" }) { _, manga ->
+					itemsIndexed(shown, key = { i, m -> "${m.id}-$i" }) { _, manga ->
 						CoverCard(
 							manga = manga,
 							client = session.client,

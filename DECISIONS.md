@@ -44,7 +44,7 @@ natively JVM, and the Android app keeps the two that are not.
 Every row was verified by running the command, not by inspection. The
 Android gate is re-run before each commit.
 
-**Current state:** `:app:assembleDebug` green, **497 tests** passing
+**Current state:** `:app:assembleDebug` green, **669 tests** passing
 across `:shared` and `:desktop`, `.deb` built and installed to
 `/opt/dropsauce` running on its own bundled JRE.
 
@@ -1286,6 +1286,70 @@ only the retained result is smaller, and PNG pays 50% more CPU to save
 The memory guard still checks the **whole** decoded size even when a
 smaller one is asked for, because two of the three formats materialise it
 regardless.
+
+### D38. A site search is not a search, so the answer is ranked before it is shown
+
+Reported as "searching for a title returns unrelated titles". It does, and
+the ranking was missing rather than broken.
+
+Measured with `SearchQualityLiveTest` against the sources in this machine's
+own `discover.json`, query "Berserk". MangaDex has a real `RELEVANCE` order
+and its answer needs nothing. Most of the catalogue does not, so
+`FilterSpec.defaultSort(isSearch = true)` falls through to `UPDATED` and the
+answer comes back ordered by **when each title was last touched**. ATSUMARU
+went further and widened the query: 6 of the 10 rows it returned share no
+word with it, "Peerless Battle Spirit" and "Black Summoner" among them, and
+two of those sat in the first five. Nothing in `:desktop` looked at the
+query again after sending it, so all ten were rendered in the order they
+arrived.
+
+The Android app has the same problem and fixes it in `SearchV2Helper`, by
+sorting on Levenshtein distance to the query. **That is not what ships
+here.** Run on the same live answer it puts "SPRIGGAN" second for a query of
+"Berserk", because a short unrelated word is a few edits from a short query.
+It is the same reason the migration feature's `titleSimilarity`
+(`feature/migration/AlternativesEngine.kt`, built for D27) already scores on
+word overlap: edit distance punishes a long correct title far harder than a
+short wrong one. `SearchRankingTest` keeps that comparison as a positive
+control, so the premise is asserted rather than remembered.
+
+`desktop/search/SearchRanking.kt` scores a title against a query in tiers,
+on whole words: exact, the query as a prefix, the query as a run of words
+inside the title, the title as a run of words inside the query, a bare
+substring, then the share of the query's words the title accounts for, with
+part credit for a shared stem. Equal scores keep the source's order, because
+at that point the source knows more than we do. Alternative titles count for
+as much as the main one. The substring tier is what carries languages that
+normalisation leaves as one token, where every word tier reads a title as a
+single mismatched word.
+
+Three decisions worth stating, because each one could have gone the other
+way:
+
+- **Rows that score zero are held back, not dropped and not shown.** They
+  are counted, named as unrelated, and one button away, in all three places
+  a query is sent: global search, the discover browse screen and the
+  catalogue browse screen. A source listing a title under a romanisation
+  this cannot match is exactly the case where the user needs to see what was
+  held back, and a count they can open is honest where a silent filter is
+  not. Where everything was held back the screen says so, rather than
+  showing "nothing found" above a non-zero count.
+- **Paging is measured against what is on screen, and capped.** With rows
+  held back, "how many were fetched" and "how many are shown" differ, and
+  paging off the fetched count stops while the grid still has room. Paging
+  off the shown count, on a source that answers a title it does not have
+  with its front page, would walk the whole site instead, so
+  `MAX_FRUITLESS_PAGES` stops after three consecutive pages holding no match
+  and offers to keep looking.
+- **A query shorter than two characters is not ranked at all.** One
+  character is a prefix of half the catalogue, so every tier fires on rows
+  that are not hits, and hiding them would be worse than not ranking.
+
+The engine is untouched: `SourceOutcome.Answered` still carries what the
+source said, and `hitCount` still counts it. What a source answered and what
+is worth showing are different facts, and the split is a view over the
+snapshot (`GlobalSearchState.rankGroups`), which is why it can be asserted
+without a UI.
 
 ### D16. No new dependency is added without appearing in this file first
 

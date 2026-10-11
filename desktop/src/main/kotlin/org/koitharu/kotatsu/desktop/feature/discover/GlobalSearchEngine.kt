@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import org.koitharu.kotatsu.desktop.search.RankedResults
+import org.koitharu.kotatsu.desktop.search.rankForQuery
 import org.koitharu.kotatsu.parsers.model.Manga
 
 /**
@@ -162,6 +164,32 @@ class GlobalSearchEngine(
 		const val DEFAULT_CONCURRENCY = 6
 	}
 }
+
+/**
+ * One source's answer, split into the rows that answer the query and the rows that do not.
+ *
+ * The split is not part of [SourceOutcome] on purpose: what a source said and what is
+ * worth showing a reader are different facts, and the engine's job stops at the first one.
+ * See [rankForQuery] for why the second one is needed at all.
+ */
+class RankedGroup(
+	val result: SourceResult,
+	val ranked: RankedResults,
+) {
+
+	val title: String get() = result.target.title
+
+	val key: String get() = result.target.key
+}
+
+/**
+ * Every source that returned anything, with its answer ranked against the query.
+ *
+ * Kept out of the state class so it stays a plain function over a snapshot: the screen
+ * calls it once per snapshot and the result can be asserted without a UI.
+ */
+fun GlobalSearchState.rankGroups(): List<RankedGroup> =
+	groupsWithHits.map { RankedGroup(it, rankForQuery(query, it.items)) }
 
 /** Everything queued, nothing run. Also the state to show for an empty source selection. */
 fun initialState(query: String, targets: List<SearchTarget>) = GlobalSearchState(

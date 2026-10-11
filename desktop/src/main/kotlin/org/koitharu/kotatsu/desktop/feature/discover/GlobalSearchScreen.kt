@@ -180,6 +180,14 @@ private fun SearchResults(
 ) {
 	val collapsed = remember(state.query) { mutableStateMapOf<String, Boolean>() }
 	var showFailures by remember(state.query) { mutableStateOf(false) }
+	var showLoose by remember(state.query) { mutableStateOf(false) }
+
+	// Sources answer a query loosely, so what came back is ranked against it and the rows
+	// that answer nothing are held back behind a count. See rankForQuery.
+	val groups = remember(state) { state.rankGroups() }
+	val matched = groups.sumOf { it.ranked.shown.size }
+	val loose = groups.sumOf { it.ranked.hiddenCount }
+	val visibleGroups = if (showLoose) groups else groups.filter { it.ranked.shown.isNotEmpty() }
 
 	Column(Modifier.fillMaxSize()) {
 		ProgressBar(
@@ -194,10 +202,11 @@ private fun SearchResults(
 			if (!state.isFinished) CircularProgressIndicator(modifier = Modifier.size(14.dp))
 			Text(
 				text = buildString {
-					append(state.hitCount)
-					append(if (state.hitCount == 1) " title from " else " titles from ")
-					append(state.groupsWithHits.size)
-					append(if (state.groupsWithHits.size == 1) " source" else " sources")
+					val sources = groups.count { it.ranked.shown.isNotEmpty() }
+					append(matched)
+					append(if (matched == 1) " match from " else " matches from ")
+					append(sources)
+					append(if (sources == 1) " source" else " sources")
 					append("  ·  ")
 					append(state.settled)
 					append(" of ")
@@ -212,6 +221,14 @@ private fun SearchResults(
 				style = MaterialTheme.typography.bodySmall,
 				modifier = Modifier.weight(1f),
 			)
+			if (loose > 0) {
+				// Named and counted rather than silently dropped: a source that lists the
+				// title under a romanisation this cannot match is exactly the case where
+				// the user needs to see what was held back.
+				TextButton(onClick = { showLoose = !showLoose }) {
+					Text(if (showLoose) "Hide $loose unrelated" else "Show $loose unrelated")
+				}
+			}
 			if (state.failed > 0) {
 				TextButton(onClick = { showFailures = !showFailures }) {
 					Text(if (showFailures) "Hide failures" else "Show failures")
@@ -259,17 +276,33 @@ private fun SearchResults(
 				)
 			}
 
+			matched == 0 && loose > 0 && !showLoose -> Box(Modifier.fillMaxSize()) {
+				// The sources answered, but with rows that have no word in common with
+				// the query. Saying so beats both a wall of unrelated covers and a bare
+				// "nothing found" that contradicts the count above it.
+				Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					Text(
+						text = "$loose ${if (loose == 1) "title came" else "titles came"} back, " +
+							"but none of them matches \"${state.query}\". Sources often widen a " +
+							"query that would otherwise return little.",
+						style = MaterialTheme.typography.bodyMedium,
+					)
+					TextButton(onClick = { showLoose = true }) { Text("Show them anyway") }
+				}
+			}
+
 			else -> LazyColumn(
 				modifier = Modifier.fillMaxSize(),
 				contentPadding = PaddingValues(bottom = 24.dp),
 			) {
-				items(state.groupsWithHits, key = { it.target.key }) { group ->
+				items(visibleGroups, key = { it.key }) { group ->
 					SourceGroup(
 						context = context,
 						group = group,
-						isCollapsed = collapsed[group.target.key] == true,
+						items = if (showLoose) group.ranked.all else group.ranked.shown,
+						isCollapsed = collapsed[group.key] == true,
 						onToggle = {
-							collapsed[group.target.key] = collapsed[group.target.key] != true
+							collapsed[group.key] = collapsed[group.key] != true
 						},
 						onOpen = onOpen,
 					)
@@ -293,12 +326,13 @@ private fun SearchResults(
 @Composable
 private fun SourceGroup(
 	context: FeatureContext,
-	group: SourceResult,
+	group: RankedGroup,
+	items: List<Manga>,
 	isCollapsed: Boolean,
 	onToggle: () -> Unit,
 	onOpen: (MangaParserSource, Manga) -> Unit,
 ) {
-	val source = remember(group.target.key) { sourceOf(group.target.key) }
+	val source = remember(group.key) { sourceOf(group.key) }
 	Column(Modifier.fillMaxWidth()) {
 		Row(
 			modifier = Modifier
@@ -309,9 +343,13 @@ private fun SourceGroup(
 			horizontalArrangement = Arrangement.spacedBy(8.dp),
 		) {
 			Text(if (isCollapsed) "▸" else "▾", style = MaterialTheme.typography.bodyMedium)
-			Text(group.target.title, style = MaterialTheme.typography.titleSmall)
+			Text(group.title, style = MaterialTheme.typography.titleSmall)
 			Text(
-				text = "${group.items.size}",
+				text = if (group.ranked.hiddenCount > 0 && items.size == group.ranked.shown.size) {
+					"${items.size} of ${group.result.items.size}"
+				} else {
+					"${items.size}"
+				},
 				style = MaterialTheme.typography.labelMedium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
@@ -323,7 +361,7 @@ private fun SourceGroup(
 				contentPadding = PaddingValues(horizontal = 16.dp),
 				horizontalArrangement = Arrangement.spacedBy(10.dp),
 			) {
-				itemsIndexed(group.items, key = { i, m -> "${m.id}-$i" }) { _, manga ->
+				itemsIndexed(items, key = { i, m -> "${m.id}-$i" }) { _, manga ->
 					CoverCard(
 						manga = manga,
 						client = client,

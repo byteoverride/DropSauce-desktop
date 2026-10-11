@@ -180,4 +180,43 @@ class GlobalSearchEngineTest {
 		val state = initialState("q", listOf(target("a") { emptyList() }))
 		assertEquals(state, reduce(state, SearchEvent.Failed("nope", "x")))
 	}
+
+	@Test
+	fun `a group's answer is ranked against the query, and the rows that miss it are split off`() {
+		val state = reduce(
+			initialState("berserk", listOf(target("a") { emptyList() })),
+			SearchEvent.Answered(
+				"a",
+				listOf(manga("Peerless Battle Spirit"), manga("Berserk of Gluttony"), manga("Berserk")),
+			),
+		)
+
+		val group = state.rankGroups().single()
+		assertEquals(listOf("Berserk", "Berserk of Gluttony"), group.ranked.shown.map { it.title })
+		assertEquals(listOf("Peerless Battle Spirit"), group.ranked.hidden.map { it.title })
+		// The engine's own count stays what the source said; the split is a view on top.
+		assertEquals(3, state.hitCount)
+	}
+
+	@Test
+	fun `a source that answered only with misses is a group with nothing to show`() {
+		val state = reduce(
+			initialState("berserk", listOf(target("a") { emptyList() })),
+			SearchEvent.Answered("a", listOf(manga("Black Summoner"))),
+		)
+
+		val group = state.rankGroups().single()
+		assertTrue("nothing here answers the query", group.ranked.shown.isEmpty())
+		assertEquals(1, group.ranked.hiddenCount)
+	}
+
+	@Test
+	fun `a source that answered with nothing at all is not a group`() {
+		val state = reduce(
+			initialState("berserk", listOf(target("a") { emptyList() })),
+			SearchEvent.Answered("a", emptyList()),
+		)
+
+		assertTrue(state.rankGroups().isEmpty())
+	}
 }

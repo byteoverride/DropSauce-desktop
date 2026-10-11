@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import org.koitharu.kotatsu.desktop.search.normaliseTitle
 import org.koitharu.kotatsu.parsers.model.ContentType
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
@@ -236,20 +237,6 @@ fun titleSimilarity(a: String, b: String): Float {
 	val contained = leftWords.containsAll(rightWords) || rightWords.containsAll(leftWords)
 	return if (contained) maxOf(jaccard, CONTAINMENT_SCORE) else jaccard
 }
-
-/** Lowercase, punctuation dropped, whitespace collapsed. */
-private fun normaliseTitle(value: String): String = buildString(value.length) {
-	var lastWasSpace = true
-	for (ch in value.lowercase()) {
-		if (ch.isLetterOrDigit()) {
-			append(ch)
-			lastWasSpace = false
-		} else if (!lastWasSpace) {
-			append(' ')
-			lastWasSpace = true
-		}
-	}
-}.trim()
 
 /** A one-line reason for a failures list. Many parser exceptions carry no message at all. */
 internal fun Throwable.describeFailure(): String =
