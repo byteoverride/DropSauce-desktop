@@ -149,7 +149,7 @@ The library filters by how many chapters a title has, which is the quick way to 
 ones on a "read it once it is long enough" shelf that have grown past your threshold.
 
 <p align="center">
-  <img src="assets/desktop_chapter-filter-preview.webp" alt="The chapter length filter, with buckets from 1 to 25 up to Over 500 and a 100 or more bucket, above a bar offering to load the counts that are still unknown" width="90%" />
+  <img src="assets/desktop_chapter-filter-preview.webp" alt="The chapter length filter open as a menu, with buckets from Not loaded and 1 to 25 up to Over 500 and 100 or more, beside the bar offering to load the counts that are still unknown" width="90%" />
 </p>
 
 Counts are read from the database, not fetched while you scroll. They get there three
