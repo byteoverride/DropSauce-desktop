@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import okhttp3.OkHttpClient
+import org.koitharu.kotatsu.desktop.feature.health.HealthStore
 import org.koitharu.kotatsu.desktop.image.ImageCache
 import org.koitharu.kotatsu.desktop.library.LibraryRepository
 import org.koitharu.kotatsu.desktop.source.SourceRegistry
@@ -70,6 +71,15 @@ interface FeatureContext {
 	 * independently, which is how a filter ends up disagreeing with itself.
 	 */
 	fun visibleSources(): List<MangaParserSource>
+
+	/**
+	 * What the last health check found for each source.
+	 *
+	 * On the contract rather than owned by the health area, because the shell reads it
+	 * too: [visibleSources] drops the sources it reports dead. Two copies of this
+	 * pointed at one file would disagree the moment either wrote.
+	 */
+	val health: HealthStore
 }
 
 /**

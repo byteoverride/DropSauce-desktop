@@ -46,6 +46,8 @@ import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaParserSource
 import org.koitharu.kotatsu.shared.db.openLibraryDatabase
 import org.koitharu.kotatsu.shared.io.AppPaths
+import org.koitharu.kotatsu.desktop.feature.health.HealthFeature
+import org.koitharu.kotatsu.desktop.feature.health.HealthStore
 import org.koitharu.kotatsu.shared.settings.JsonSettingsStore
 import org.koitharu.kotatsu.shared.settings.SettingsStore
 import org.koitharu.kotatsu.shared.io.defaultAppPaths
@@ -115,6 +117,15 @@ class AppState(val paths: AppPaths = defaultAppPaths()) {
 
 	val settings: SettingsStore = JsonSettingsStore(paths.config / SETTINGS_FILE)
 
+	/**
+	 * What the last source health check measured.
+	 *
+	 * Owned here rather than by the health area because [visibleSources] reads it: the
+	 * point of the check is to keep dead sources out of the catalogue, and the catalogue
+	 * is the shell's.
+	 */
+	val health: HealthStore = HealthStore(paths.config / HEALTH_FILE)
+
 	/** The User-Agent is read per session, so changing it applies after [SourceRegistry.reset]. */
 	val sources = SourceRegistry { settings.data.value.userAgent }
 
@@ -136,6 +147,13 @@ class AppState(val paths: AppPaths = defaultAppPaths()) {
 					terms.any { source.title.contains(it, ignoreCase = true) }
 				}
 			}
+			// Measured, not declared. The catalogue's own isBroken flag is a judgement
+			// made upstream when the parser was written; this is whether the site
+			// answered when it was last asked. Off until a check has run, and a source
+			// has to fail twice before it counts. See HealthStore.
+			if (current.hideDeadSources) {
+				list = list.filterNot { health.isDead(it.name) }
+			}
 			return list
 		}
 
@@ -149,6 +167,7 @@ class AppState(val paths: AppPaths = defaultAppPaths()) {
 	 * conflict in a shared `when` block.
 	 */
 	val features: List<Feature> = listOf(
+		HealthFeature,
 		LocalFeature,
 		LocalExtrasFeature,
 		DiscoverFeature,
@@ -289,6 +308,7 @@ class AppState(val paths: AppPaths = defaultAppPaths()) {
 		override val sources get() = this@AppState.sources
 		override val images get() = this@AppState.images
 		override val settings get() = this@AppState.settings
+		override val health get() = this@AppState.health
 		override val paths get() = this@AppState.paths
 		override val library get() = this@AppState.library
 		override val scope get() = this@AppState.scope
@@ -336,6 +356,7 @@ class AppState(val paths: AppPaths = defaultAppPaths()) {
 
 		const val DATABASE_FILE = "library.db"
 		const val SETTINGS_FILE = "settings.json"
+		const val HEALTH_FILE = "source-health.json"
 	}
 }
 

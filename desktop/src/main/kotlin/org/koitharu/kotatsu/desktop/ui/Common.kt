@@ -327,6 +327,17 @@ fun AppListRow(
 	trailing: @Composable (RowScope.() -> Unit)? = null,
 	progress: Float? = null,
 	selected: Boolean = false,
+	/**
+	 * Whether this row is something the reader can act on.
+	 *
+	 * Defaults to "it has somewhere to go", which is right for a list of things to open:
+	 * a history entry whose source has left the catalogue reads as unavailable, which it
+	 * is. It is a separate parameter because a row with no `onClick` is not always
+	 * disabled — an informational list has nothing to click and every word in it is
+	 * meant to be read, and 38% content would be the one thing that must not happen to
+	 * the text explaining why a source failed.
+	 */
+	enabled: Boolean = onClick != null,
 ) {
 	val interactions = remember { MutableInteractionSource() }
 	val hovered by interactions.collectIsHoveredAsState()
@@ -339,11 +350,9 @@ fun AppListRow(
 		hovered -> scheme.onSurface.copy(alpha = HOVER_ALPHA)
 		else -> Color.Transparent
 	}
-	// A row with nothing to click is disabled, and has to look it. The spec said so and
-	// the first cut did not do it, so a row you cannot open looked exactly like one you
-	// can. 38% is Material's disabled alpha; such a row is also left out of the tab
-	// order, which the absent `clickable` below already achieves.
-	val enabled = onClick != null
+	// A row that cannot be acted on has to look it, or a row you cannot open looks
+	// exactly like one you can. 38% is Material's disabled alpha; such a row is also
+	// left out of the tab order, which the absent `clickable` below already achieves.
 	val content = when {
 		!enabled -> scheme.onSurface.copy(alpha = DISABLED_ALPHA)
 		selected -> scheme.onSecondaryContainer

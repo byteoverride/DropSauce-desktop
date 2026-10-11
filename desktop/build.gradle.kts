@@ -81,6 +81,9 @@ tasks.test {
 	// configuration-cache-safe way to read it; a bare System.getProperty at configuration
 	// time would be an untracked input.
 	systemProperty("live", providers.systemProperty("live").getOrElse("false"))
+	// -Dsample=N, so a live sweep can be run over part of the catalogue instead of all
+	// 890 of it. Forwarded the same configuration-cache-safe way as -Dlive.
+	systemProperty("sample", providers.systemProperty("sample").getOrElse(""))
 	testLogging { showStandardStreams = true }
 }
 

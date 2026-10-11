@@ -60,6 +60,15 @@ data class SettingsData(
 	@SerialName("hide_adult_sources") val hideAdultSources: Boolean = true,
 	/** Sources whose names contain this are also hidden, for anything else unwanted. */
 	@SerialName("hidden_source_terms") val hiddenSourceTerms: List<String> = emptyList(),
+	/**
+	 * Hide sources a health check has found dead.
+	 *
+	 * Off until a check has actually run, because with no measurements it would hide
+	 * nothing and only look like a setting that does not work. What counts as dead is
+	 * decided by the health area, not here: a single failure never does it, and a site
+	 * that answers with an HTTP error or asks for a login is alive.
+	 */
+	@SerialName("hide_dead_sources") val hideDeadSources: Boolean = false,
 	/** Covers and pages held in memory. Higher is smoother and uses more RAM. */
 	@SerialName("image_cache_entries") val imageCacheEntries: Int = 300,
 	/**

@@ -13,7 +13,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import okio.Path.Companion.toPath
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
+import org.koitharu.kotatsu.desktop.feature.health.HealthStore
 import org.koitharu.kotatsu.desktop.image.ImageCache
 import org.koitharu.kotatsu.desktop.library.LibraryRepository
 import org.koitharu.kotatsu.desktop.source.SourceRegistry
@@ -263,6 +265,12 @@ private class FakeContext(
 	override val sources = SourceRegistry()
 
 	override val images = ImageCache(maxEntries = 1)
+
+	// A health store over a temp file: the fake context needs one, and nothing in these
+	// tests reads it, so an empty one is the honest stand-in.
+	override val health: HealthStore = HealthStore(
+		java.nio.file.Files.createTempDirectory("health-fake").toString().toPath() / "source-health.json",
+	)
 
 	override val settings: SettingsStore = object : SettingsStore {
 		override val data: StateFlow<SettingsData> = MutableStateFlow(SettingsData())

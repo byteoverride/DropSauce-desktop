@@ -13,6 +13,7 @@ import okio.FileSystem
 import okio.Path
 import okio.Path.Companion.toPath
 import org.koitharu.kotatsu.desktop.feature.FeatureContext
+import org.koitharu.kotatsu.desktop.feature.health.HealthStore
 import org.koitharu.kotatsu.desktop.feature.FeatureNavigator
 import org.koitharu.kotatsu.desktop.image.ImageCache
 import org.koitharu.kotatsu.desktop.library.LibraryRepository
@@ -50,6 +51,8 @@ private class PreviewContext(root: Path) : FeatureContext {
 	override val sources = SourceRegistry()
 	override val images = ImageCache(50)
 	override val settings: SettingsStore = JsonSettingsStore(paths0.config / "settings.json")
+
+	override val health: HealthStore = HealthStore(paths0.config / "source-health.json")
 	override val library = LibraryRepository(db)
 	override val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 	private val client = OkHttpClient()

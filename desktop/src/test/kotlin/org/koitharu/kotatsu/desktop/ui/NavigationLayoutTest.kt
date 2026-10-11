@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.desktop.ui
 
 import org.koitharu.kotatsu.desktop.feature.Feature
+import org.koitharu.kotatsu.desktop.feature.health.HealthFeature
 import org.koitharu.kotatsu.desktop.feature.appupdate.AppUpdateFeature
 import org.koitharu.kotatsu.desktop.feature.curate.CurateFeature
 import org.koitharu.kotatsu.desktop.feature.discover.DiscoverFeature
@@ -33,7 +34,7 @@ class NavigationLayoutTest {
 		LocalFeature, LocalExtrasFeature, DiscoverFeature, SuggestionsFeature,
 		DownloadFeature, BookmarksFeature, CurateFeature, UpdatesFeature,
 		MigrationFeature, ScrobblingFeature, ReaderExtrasFeature, StatsFeature,
-		BackupFeature, AppUpdateFeature,
+		BackupFeature, AppUpdateFeature, HealthFeature,
 	)
 
 	/** Four destinations are the shell's own and are not features. */
@@ -50,7 +51,7 @@ class NavigationLayoutTest {
 	@Test
 	fun `the tools are the ones in Settings`() {
 		assertEquals(
-			listOf("backup", "curate", "localx", "migration", "readerx", "stats", "tracking"),
+			listOf("backup", "curate", "health", "localx", "migration", "readerx", "stats", "tracking"),
 			all.filterNot { it.isTopLevel }.map { it.id }.sorted(),
 		)
 	}

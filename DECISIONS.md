@@ -1450,6 +1450,76 @@ anyway, which it never was.
   same treatment.
 - Grid keyboard navigation, as above, is still unbuilt on purpose.
 
+### D40. A source is dead when it stops answering, not when a flag says so
+
+**The measurement that prompted this.** The app advertises 890 usable sources.
+`CatalogueHealthDiagnostic` asked every one of them for its front page, four
+at a time, and 274 answered. Swept 2026-10-11, 890 sources in 360 s:
+
+| verdict | count | share |
+|---|---|---|
+| Ok | 273 | 30% |
+| NeedsAccount | 1 | 0% |
+| Changed (answers, parser cannot read it) | 125 | 14% |
+| Refused (HTTP error) | 116 | 13% |
+| Empty (answers with nothing) | 116 | 13% |
+| Gone (no DNS at all) | 106 | 12% |
+| Unreachable (timeout, no connection) | 93 | 10% |
+| Untrusted (certificate) | 60 | 7% |
+
+So **31% of the catalogue answers**, and "890 usable" counts parsers that
+exist rather than sites that work. D18 already said a large minority are
+flagged broken; this says the flag is not the same question. `MANGAJINX` is
+not flagged and its domain does not resolve.
+
+This is also the answer to a proposal to pull in the Mangayomi extension
+index for more sources. Measured: that index holds 363 manga sources, 254
+unique by name, of which 166 are already in this catalogue and **88 are new**
+— a 7% increase, behind a JavaScript engine that D17 struck, for sources that
+rot at the same rate as the ones already here. The gap is not quantity.
+
+**Verdicts are what to do about it, not what was thrown.** Being rate-limited
+or asked for a login counts as *healthy*: one proves the site is up and
+talking, the other that it is up and asking. Hiding either would remove
+working sources, which is the failure this feature must not have.
+
+**Two rules stop it doing harm, and both are the point of the design.**
+
+*The instrument is checked before its measurements are believed.* Run a check
+while your own connection is down and every source on earth answers "the
+address does not resolve", which taken at face value empties the catalogue.
+`trustOf` discards a run where half the sample lost its DNS, or where nearly
+everything failed at the network level and nothing answered at all. No extra
+request is made to decide this: sites fail independently, so a large majority
+failing *the same way at the same moment* is a statement about this machine.
+A source answering with an HTTP error or unreadable HTML is deliberately not
+counted towards it, because those prove the network works.
+
+*One failure is not death.* A verdict needs two consecutive failures before
+it hides anything, and the count is cleared the moment the source answers
+again rather than decremented, so a recovered source is not kept hidden for
+as many checks as it was down. The single exception is a name that no longer
+resolves, which is conclusive on sight because no amount of waiting brings a
+DNS entry back.
+
+**Stopping a check keeps what it measured.** A full sweep is several hundred
+requests over about twenty minutes at the polite concurrency; throwing the
+results away because the reader stopped it at source 600 would make stopping
+cost more than waiting. The record happens in a `finally` under
+`NonCancellable`, so it runs on cancellation too.
+
+**What it hides, and where.** `AppState.visibleSources` drops dead sources
+when the setting is on, which covers the catalogue, the source picker and
+global search in one place, because that getter is already the single
+definition of "sources the reader has chosen to see". Nothing in the library
+is touched, and every verdict is individually overrulable with Keep. Verified
+end to end: a check stopped at 249 of 658 recorded 25 dead, all of them
+`Gone`, and the catalogue went from 658 shown to 633 across a restart.
+
+**Not done.** No automatic checking on a timer. Four hundred requests that
+the reader did not ask for, to sites that did not ask to be scraped, is not
+something to start in the background; the check is a button.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:
