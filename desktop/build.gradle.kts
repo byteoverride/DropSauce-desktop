@@ -15,7 +15,7 @@ plugins {
  * hand-kept copies would drift, and the failure is silent, so it is declared here and
  * fed to both.
  */
-val appVersion = "1.2.0"
+val appVersion = "1.2.1"
 
 /**
  * Puts [appVersion] on the classpath, so the app can read its own version at runtime.
@@ -63,7 +63,12 @@ dependencies {
 
 	// The source catalogue. Pure JVM jar, 1270 parsers. Unlike :app we must NOT exclude
 	// org.json: Android ships it in the platform, the JVM does not. See DECISIONS.md D1.
-	implementation("com.github.YakaTeam:kotatsu-parsers:${libs.versions.parsers.get()}")
+	// Renamed upstream: the GitHub repo YakaTeam/kotatsu-parsers now redirects to
+	// Gekkoushi/plugin-source, and JitPack stopped serving the old coordinate even
+	// though it still reports the build as ok. Nothing resolves it from a cold cache,
+	// which is why CI could build this for months and then could not. Same commit, same
+	// 3550 entries, same uncompressed size.
+	implementation("com.github.Gekkoushi:plugin-source:${libs.versions.parsers.get()}")
 
 	implementation(libs.androidx.sqlite.bundled)
 	implementation(libs.okhttp)

@@ -1520,6 +1520,45 @@ end to end: a check stopped at 249 of 658 recorded 25 dead, all of them
 the reader did not ask for, to sites that did not ask to be scraped, is not
 something to start in the background; the check is a button.
 
+### D41. The parser catalogue moved, and nothing said so for months
+
+A release build failed with `Could not find
+com.github.YakaTeam:kotatsu-parsers:21d4b79b5f`. The dependency had not
+changed; the repository behind it had. `YakaTeam/kotatsu-parsers` now
+redirects to `Gekkoushi/plugin-source`, and JitPack stopped serving the old
+coordinate while still reporting the build as `ok` through its API, so
+nothing anywhere raised a warning.
+
+**The part worth remembering: every local build stayed green.** The 6 MB jar
+sits in `~/.gradle/caches`, so this machine could compile, test, package and
+install all day against an artifact that no longer existed anywhere else. A
+clean checkout could not have built the app at all, on CI or on anyone else's
+machine, and the only reason it surfaced was that a tag finally pushed the
+build onto a cold runner. A dependency that resolves from a warm cache is not
+evidence that it resolves.
+
+**Fixed by following the rename**, same commit, same artifact: verified
+before changing anything that the jar under the new coordinate is 7223495
+bytes with 3550 entries and 15808797 uncompressed, identical to the cached
+one, and then by a full gate in which Gradle fetched it fresh under a name
+nothing had cached.
+
+```
+com.github.YakaTeam:kotatsu-parsers  ->  com.github.Gekkoushi:plugin-source
+```
+
+The version ref in `gradle/libs.versions.toml` is unchanged: it is a commit
+hash and the commit still exists in the renamed repository.
+
+**The exposure is still there.** The catalogue, which is the whole source
+backend for the desktop app, is a JitPack build of one commit in a repository
+someone else controls, and that commit's availability depends on JitPack
+keeping it and on the repository keeping its name. It survived this time
+because a rename leaves a redirect. A deletion would not, and the measured
+blast radius is the entire source catalogue. Vendoring the jar, or mirroring
+it as a release asset on a repository we control, is the obvious answer and
+is a decision for the operator rather than something to do quietly.
+
 ### D16. No new dependency is added without appearing in this file first
 
 Planned for v1, each already justified above:

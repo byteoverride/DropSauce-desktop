@@ -162,7 +162,12 @@ dependencies {
 	implementation project(':shared')
 
 	//noinspection UseTomlInstead
-	implementation("com.github.YakaTeam:kotatsu-parsers:${libs.versions.parsers.get()}") {
+	// Renamed upstream: the GitHub repo YakaTeam/kotatsu-parsers now redirects to
+	// Gekkoushi/plugin-source, and JitPack stopped serving the old coordinate even
+	// though it still reports the build as ok. Nothing resolves it from a cold cache,
+	// which is why CI could build this for months and then could not. Same commit, same
+	// 3550 entries, same uncompressed size.
+	implementation("com.github.Gekkoushi:plugin-source:${libs.versions.parsers.get()}") {
 		exclude group: 'org.json', module: 'json'
 	}
 
